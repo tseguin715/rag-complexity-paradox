@@ -84,7 +84,9 @@ If you run local configs like qwen2.5:32b / llama3.1:70b, install Ollama and pul
 
 ```bash
 ollama pull qwen2.5:32b
+ollama pull qwen2.5:32b-instruct-q2_K
 ollama pull llama3.1:70b
+ollama pull bazsalanszky/llama3.1:70B-instruct-iq2_x
 ```
 
 ### 5) First run note (Hugging Face downloads)
