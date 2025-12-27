@@ -16,8 +16,8 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 
 ## What’s in here
 
-- `main_cli_fixed_db.py` — baseline + hybrid + agentic evaluation harness (Systems A–C)  
-- `iter_reranked_fixed_fixed.py` — “God Mode” wide-retrieval + reranking harness (System D)  
+- `run_baseline.py` — baseline + hybrid + agentic evaluation harness (Systems A–C)  
+- `run_godmode.py` — “God Mode” wide-retrieval + reranking harness (System D)  
 - `model_factory.py` — model/provider configuration (OpenAI, Gemini, Ollama local models)  
 - `results_table.csv` — aggregated results (one row per configuration)  
 - `evaluation_results_*.jsonl` — per-question logs (one row per question per config)
@@ -41,8 +41,51 @@ Full diagrams + details: see the article.
 
 ## Quickstart
 
-### 1) Set up environment
+### 1) Set up environment (Python 3.10)
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .\.venv\Scripts\activate
+python -m pip install --upgrade pip
+```
+
+### 2) Install PyTorch (CUDA) + requirements
+Install your CUDA-enabled PyTorch build first. If you're only on CPU, install the CPU PyTorch build instead of CUDA.
+
+then:
+
+```bash
 pip install -r requirements.txt
+```
+
+### 3) Set API keys (for hosted models + judging)
+
+This repo uses hosted APIs for some configs (e.g., GPT judge, OpenAI/Gemini LLMs). Set whichever you plan to run:
+
+macOS/Linux:
+
+```bash
+export OPENAI_API_KEY="..."
+export GOOGLE_API_KEY="..."
+```
+
+Windows PowerShell:
+
+```powershell
+setx OPENAI_API_KEY "..."
+setx GOOGLE_API_KEY "..."
+```
+
+
+
+### 4) Local LLMs (optional, via Ollama)
+
+If you run local configs like qwen2.5:32b / llama3.1:70b, install Ollama and pull the models:
+
+```bash
+ollama pull qwen2.5:32b
+ollama pull llama3.1:70b
+```
+
+### 5) First run note (Hugging Face downloads)
+
+Embedding models (e.g., Jina / BGE) may download weights the first time you run them and cache locally. 
