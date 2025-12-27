@@ -92,3 +92,19 @@ ollama pull bazsalanszky/llama3.1:70B-instruct-iq2_x
 ### 5) First run note (Hugging Face downloads)
 
 Embedding models (e.g., Jina / BGE) may download weights the first time you run them and cache locally. 
+
+## Data
+
+This repo does not include TMDB-derived datasets or prebuilt Chroma DBs (to avoid redistributing TMDB content).  
+To reproduce results, you must obtain TMDB data yourself (via the official API and/or exports) and generate a local `source_data.ndjson`.
+
+### Build the local vector DB(s)
+
+1) Create `source_data.ndjson` in the repo root (or update the script paths accordingly).  
+2) Run:
+
+```bash
+python build_child_parent_db.py
+```
+
+This will build the Chroma DB directories under db/ (which are also not tracked in git).
