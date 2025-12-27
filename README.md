@@ -21,6 +21,7 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 - `model_factory.py` — model/provider configuration (OpenAI, Gemini, Ollama local models)  
 - `results_table.csv` — aggregated results (one row per configuration)  
 - `evaluation_results_*.jsonl` — per-question logs (one row per question per config)
+- `db/*` - all four database directories
 
 **Metrics**
 - `correctness_score` / `faithfulness_score`: LLM-as-judge (fixed judge, temp=0) over (question, gold answer, model answer)
