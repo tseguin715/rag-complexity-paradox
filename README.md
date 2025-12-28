@@ -21,7 +21,11 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 - `model_factory.py` — model/provider configuration (OpenAI, Gemini, Ollama local models)  
 - `results_table.csv` — aggregated results (one row per configuration)  
 - `evaluation_results_*.jsonl` — per-question logs (one row per question per config)
-- `db/*` - all four database directories
+- `create_source_data.py` - For creating the raw database file `source_data.ndjson` via TMDB's API
+- `tmdb_ids_combined.csv` - A dependency for `create_source_data.py` - containing the TMDB IDs of the TV/Movie titles
+- `gold_set_update.py` - For creating a time-accurate 'gold set' for the RAG evaluation harness
+- `gold_set_template.jsonl` - A dependency for `gold_set_update.py` - containing the 'base' gold set that will be adjusted
+- `build_child_parent_db.py` - For creating the four vector databases
 
 **Metrics**
 - `correctness_score` / `faithfulness_score`: LLM-as-judge (fixed judge, temp=0) over (question, gold answer, model answer)
@@ -120,6 +124,11 @@ python gold_set_update.py
 
 ### 3) Create the vector databases
 
+This will create the four databases in the db subdirectory using source_data.ndjson:
+
+```bash
+python build_child_parent_db.py
+```
 
 
 
