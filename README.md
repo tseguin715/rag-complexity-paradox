@@ -40,7 +40,7 @@ Full diagrams + details: see the article.
 
 ---
 
-## Quickstart
+## Setup
 
 ### 1) Set up environment (Python 3.10)
 ```bash
@@ -76,8 +76,6 @@ setx OPENAI_API_KEY "..."
 setx GOOGLE_API_KEY "..."
 ```
 
-
-
 ### 4) Local LLMs (optional, via Ollama)
 
 If you run local configs like qwen2.5:32b / llama3.1:70b, install Ollama and pull the models:
@@ -96,15 +94,34 @@ Embedding models (e.g., Jina / BGE) may download weights the first time you run 
 ## Data
 
 This repo does not include TMDB-derived datasets or prebuilt Chroma DBs (to avoid redistributing TMDB content).  
-To reproduce results, you must obtain TMDB data yourself (via the official API and/or exports) and generate a local `source_data.ndjson`.
+To reproduce results, you must obtain TMDB data and create the vector databases yourself. There is also a requirement to make a 'gold_set.jsonl' that is accurate for the present time.
+Scripts are provided to do these steps.
 
-### Build the local vector DB(s)
+### 1) Create source_data.ndjson
 
-1) Create `source_data.ndjson` in the repo root (or update the script paths accordingly).  
-2) Run:
+Obtain an API key from tmdb.org and run:
 
 ```bash
-python build_child_parent_db.py
+python create_source_data.py --api_key 'YOUR_KEY_HERE'
 ```
 
-This will build the Chroma DB directories under db/ (which are also not tracked in git).
+This will create source_data.ndjson. This process requires tmdb_ids_combined.csv, which contains the databases's movie/TV IDs. This process will take several hours -- it took me ~3 hours during a test run.
+
+### 2) Create gold_set.jsonl
+
+This will create a 'gold_set.jsonl' for the evaluation harness that contains gold answers that are current for the time the data was extracted.
+This step needs to be done because some values (e.g. ratings and popularity) drift over time. For example, the answers for these questions were different at the time the experiments were actually performed and when the data was re-extracted for a test run:
+
+The gold_set.json creation step depends on gold_set_template.jsonl and source_data.ndjson. It also creates a drift_report.csv that shows the answers that have changed.
+
+```bash
+python gold_set_update.py
+```
+
+### 3) Create the vector databases
+
+
+
+
+
+
