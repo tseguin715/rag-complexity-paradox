@@ -118,7 +118,7 @@ This will create source_data.ndjson. This process requires tmdb_ids_combined.csv
 ### 2) Create gold_set.jsonl
 
 This will create a 'gold_set.jsonl' for the evaluation harness that contains gold answers that are current for the time the data was extracted.
-This step needs to be done because some values (e.g. ratings and popularity) drift over time.
+This step needs to be done because some values (e.g. ratings and popularity) drift on tmdb.org over time.
 
 For example, the answers for these questions were different at the time the experiments were actually performed and when the data was re-extracted for a test run:
 
