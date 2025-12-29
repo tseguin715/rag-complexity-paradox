@@ -138,7 +138,7 @@ python gold_set_update.py
 
 ### 3) Create the vector databases
 
-This will create the four databases in the db subdirectory using source_data.ndjson:
+This will create the four databases in scripts/db using source_data.ndjson:
 
 ```bash
 python build_child_parent_db.py
