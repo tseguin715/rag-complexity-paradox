@@ -13,19 +13,24 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 🧪 **Reproducible results:** JSONL logs + aggregate tables are produced by the harness scripts below.
 
 ---
-
 ## What’s in here
 
-- `run_baseline.py` — baseline + hybrid + agentic evaluation harness (Systems A–C)  
-- `run_godmode.py` — “God Mode” wide-retrieval + reranking harness (System D)  
-- `model_factory.py` — model/provider configuration (OpenAI, Gemini, Ollama local models)  
-- `results_table.csv` — aggregated results (one row per configuration)  
-- `evaluation_results_*.jsonl` — per-question logs (one row per question per config)
-- `create_source_data.py` - For creating the raw database file `source_data.ndjson` via TMDB's API
-- `tmdb_ids_combined.csv` - A dependency for `create_source_data.py` - containing the TMDB IDs of the TV/Movie titles
-- `gold_set_update.py` - For creating a time-accurate 'gold set' for the RAG evaluation harness
-- `gold_set_template.jsonl` - A dependency for `gold_set_update.py` - containing the 'base' gold set that will be adjusted
-- `build_child_parent_db.py` - For creating the four vector databases
+### 📊 Analysis & Results
+- `index.qmd` — The main article source (Quarto). Renders the figures and narrative.
+- `results_table.csv` — Aggregated results summary (one row per configuration).
+- `evals/` — Directory containing the raw, per-question JSONL logs for all 96 configurations.
+
+### 🚀 Benchmark Scripts (`scripts/`)
+- `scripts/run_baseline.py` — The evaluation harness for Systems A (Baseline), B (Reranked), and C (Agentic).
+- `scripts/run_godmode.py` — The evaluation harness for System D ("God Mode" wide-retrieval).
+- `scripts/model_factory.py` — Configuration for LLMs and Embedding models (OpenAI, Gemini, Ollama).
+
+### 🛠️ Data Construction & Setup (`setup/`)
+- `setup/create_source_data.py` — Scripts to fetch raw movie data via the TMDB API.
+- `setup/build_child_parent_db.py` — Generates the ChromaDB vector stores (Child-Parent chunking).
+- `setup/gold_set_update.py` — Updates the "Golden Answers" to account for data drift (e.g., changing movie ratings).
+- `setup/tmdb_ids_combined.csv` — List of TMDB IDs used to generate the dataset.
+- `setup/gold_set_template.jsonl` — The base template used to generate the time-accurate gold set.
 
 **Metrics**
 - `correctness_score` / `faithfulness_score`: LLM-as-judge (fixed judge, temp=0) over (question, gold answer, model answer)
