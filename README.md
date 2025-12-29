@@ -142,7 +142,7 @@ This will create the four databases in the db subdirectory using source_data.ndj
 python build_child_parent_db.py
 ```
 
-### Running the Full Benchmark
+## Running the Full Benchmark
 
 To reproduce the entire suite of 96 experiments, you can execute the provided batch script:
 ```bash
