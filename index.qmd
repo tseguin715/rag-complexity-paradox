@@ -1,39 +1,10 @@
-<!-- ---
-title: "The RAG Complexity Paradox"
-format:
-  html:
-    page-layout: full
-    toc: true
-    theme: cosmo
-    include-in-header:
-      - text: |
-          <style>
-          body { max-width: 1800px; margin: 0 auto; }
-          .quarto-container { max-width: 1800px; }
-          .cell-output-display { width: 100%; }
-          .plotly-graph-div { width: 100% !important; }
-          .dataTables_wrapper { width: 100%; }
-          table.dataTable { width: 100% !important; }
-          .panel-tabset .tab-content { width: 100%; }
-          .column-screen-inset { max-width: 1800px; margin: 0 auto; }
-          .fig-caption { font-size: 0.95em; color: #555; margin-top: 0.5em; margin-bottom: 1.5em; }
-          .tbl-caption { font-size: 0.95em; color: #555; margin-top: 0.5em; margin-bottom: 1.5em; }
-          </style>
-execute:
-  echo: false
-jupyter:
-  kernelspec:
-    display_name: "Python 3.10 (Project)"
-    language: python
-    name: python310
---- -->
 
 ---
 title: "The RAG Complexity Paradox"
 subtitle: "Why 20× more spend didn’t beat a ~70% ceiling"
 author:
   - name: Trevor Seguin
-date: last-modified
+date: 2025.12.30
 date-format: "MMMM D, YYYY"
 description: "After evaluating 96 RAG configurations across 4 architectures, 6 LLMs, and 4 embedding models on a 100-question TMDB benchmark, there seems to be no reliable improvement from highly complex agentic systems. The top configurations clustered around ~70% correctness (the practical ceiling for the testing conditions), and several very different configurations tie for best. Moderate agentic control (System C: query rewriting + doc grading) consistently lands on the efficiency frontier of latency and accuracy (e.g. ~70% at 1s with GPT-4o + OpenAI-large embeddings). The most complex architecture -- System D God Mode -- can achieve high performance in correctness and retrieval recall, but turned out to be especially brittle with heavily-quantized models. A follow-up study of God Mode degradation for 2-bit compression showed it's model dependent: Qwen 32B appears to show no substantial degradation from 4-bit to 2-bit, while Llama 3.1 70B degrades much more. All code + raw outputs are in the repo (link)."
 keywords:
@@ -63,6 +34,9 @@ image: abstract_long.png   # social preview card
 twitter-card: true
 format:
   html:
+    include-in-header:
+      - text: |
+          <script defer src="https://cloud.umami.is/script.js" data-website-id="915382e1-9b49-4bc2-848d-365a7baba5b7"></script>
     include-after-body:
       - text: |
           <hr>
@@ -866,7 +840,7 @@ fig_retrieval.show()
 **Figure 7**. Retrieval quality comparing recall (did we find it?) versus MRR (was it ranked first?). Systems C and D dominate.
 :::
 
-Figure 7 shows recall versus Mean Reciprocal Rank (MRR). Recall indicates whether the correct document existed in the retrieved set, while MRR indicates the average reciprocal rank of any relevant document in that retrieved set. An analogy would be: imagine you're trying to find a needle in a haystack. Recall is whether that needle exists in the haystack at all, while MRR indicates how close that needle happened to be near the top of the pile. 
+Figure 7 shows Mean Reciprocal Rank (MRR) vs recall. Recall indicates whether the correct document existed in the retrieved set, while MRR indicates the average reciprocal rank of any relevant document in that retrieved set. An analogy would be: imagine you're trying to find a needle in a haystack. Recall is whether that needle exists in the haystack at all, while MRR indicates how close that needle happened to be near the top of the pile. 
 
 The data points in Figure 7 show an almost linear trend. Systems C and D clearly inhabit the "head" of the line and possess the configurations with the highest recall and MRR. It appears as though Systems C and D have complementary advantages and disadvantages: System C has the highest MRR but middling recall, while System D has the highest recall but middling MRR. The performance of each system's retrieval mechanisms are clues that could explain the differences in overall correctness for each RAG architecture, as well as the large variance in System D (see Figure 5). For System C, it seems the good MRR (positioning the relevant documents near the top of the pile) leads to not just good, but remarkably robust performance despite not having the best recall. For System D, the lower MRR seems to introduce errors that are exacerbated by certain LLMs in downstream "agentic" steps, leading to spectacular failures in certain configurations -- notably in those containing Llama 3.1 70B-IQ2. The weaknesses of RAG containing this LLM are explored in detail in later sections.
 
@@ -968,9 +942,9 @@ Figure 8 shows the relationship between correctness and token count, with latenc
 
 Across all systems, performance appears to peak near a ~70% accuracy ceiling. System C occupies the most favorable region of the plot, achieving near-peak accuracy with comparatively low token usage and modest latency. This suggests that the right agentic enhancements can potentially improve RAG in the present use case beyond the baseline "naive" system, and not with an unreasonable extra cost.
 
-However, System D appears to be split in performance. Some configurations showed near-peak correctness and among the lowest token use (upper left of the plot). When System D works well, it works REALLY well. Other System D configurations showed the <i>highest</i> token use and the <i>lowest</i> correctness (lower right of the plot). These outlying points reflect systematic failure modes that emerge when complex agentic logic is paired with smaller or aggressively quantized models (vide infra).
+However, System D appears to be split in performance. Some configurations showed near-peak correctness and among the lowest token use (upper left of the plot). When System D works well, it works <i>really</i> well. Other System D configurations showed the <i>highest</i> token use and the <i>lowest</i> correctness (lower right of the plot). These outlying points reflect systematic failure modes that emerge when complex agentic logic is paired with smaller or aggressively quantized models (vide infra).
 
-Taken together, this figure highlights an important economic implication of RAG system design: architectural complexity alone does not guarantee improved outcomes. In practice, increasing control depth can amplify model weaknesses, resulting in higher costs without corresponding gains in accuracy.
+Altogether, this figure highlights an important economic implication of RAG system design: greater architectural complexity does not guarantee improved performance. In practice, increasing control depth can amplify model weaknesses, resulting in higher costs without corresponding gains in accuracy.
 
 ```{python}
 import numpy as np
@@ -1132,15 +1106,14 @@ fig.show()
 ```
 
 ::: {.fig-caption}
-**Figure 9**. Paired 95% bootstrap confidence intervals for mean correctness differences: System C is statistically indistinguishable from Systems A and B, while System D trends worse (driven by brittle configurations).
-95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The differences in correctness between System C and Systems A and B are statistically insignficant; however, there is a statistically significant difference between Systems C and D.  
+**Figure 9**. 95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The difference in correctness is statistically insignficiant between System C and Systems A and B, but statistically significant between Systems C and D.  
 :::
 
-Is System C the best in terms of correctness? With only 100 questions, there's presently not enough power to distinguish small differences among the top systems. To assess uncertainty, paired, per-question 95% bootstrap confidence intervals were calculated for the mean correctness difference between System C and the others.
+Is System C the best in terms of correctness? With only 100 questions, there's not enough power at present to distinguish small differences among the top systems. To assess uncertainty, paired, per-question 95% bootstrap confidence intervals were calculated for the mean correctness difference between System C and the rest.
 
-System C is not clearly superior to Systems A or B -- their confidence intervals overlap zero, so at the moment, these systems are effectively tied. This raises the question: do moderately agentic routines really improve correctness over strong naive or hybrid baselines, or do they mostly impact cost, latency, and robustness? A larger, more thorough, more expensive benchmark is necessary to answer that question definitively.
+Figure 9 shows that System C is not clearly superior to Systems A or B because their confidence intervals overlap zero. This raises the question: do moderately agentic routines really improve correctness over strong naive or hybrid baselines, or do they mostly impact cost, latency, and robustness? A larger, more thorough, more expensive benchmark is necessary to answer that question definitively.
 
-Figure 9 <i>does</i> show System C outperforming System D, because their confidence interval doesn't cross zero. However, this is mainly driven by brittle System D configurations -- the “high token, low accuracy” outliers in Figure 8. Added complexity can unintentionally introduce unexpected and spectacular points of failure. In practice, that means any added complexity should be introduced while being cautious and observant of such failure modes.
+However, Figure 9 <i>does</i> show System C confidently outperforming System D, because the interval doesn't reach zero. However, this is mainly driven by brittle System D configurations -- the “high token, low accuracy” outliers in Figure 8. Added complexity can unintentionally introduce unexpected and spectacular points of failure. In practice, that means any new "agentic" functionality should be introduced to RAG pipelines cautiously and with rigorous testing.
 
 ```{python}
 
@@ -1206,7 +1179,7 @@ fig_gap.show()
 
 Figure 10 compares the average correctness (factual accuracy) and faithfulness (instruction following) in each RAG architecture. The stark variation in correctness has already been discussed, but it contrasts with faithfulness, which is relatively high and constant throughout each of the architectures. 
 
-Because correctness and faithfulness don't appear to <i>strongly</i> correlate, any failures in the RAG systems studied here are not due to classical hallucinations. Even in configurations where accuracy degrades, particularly in System D, instructions are still followed faithfully. In practice, this means that any degradation in accuracy is not due to unfaithful behavior, but faithfully executed mistakes. Any errors in accuracy likely arise early in the RAG chain and then are carried along in the pipeline. This observation reinforces a central theme of the study: improving RAG performance requires not only better language models, but also careful attention to the reliability of the control logic that pushes things along.
+Because correctness and faithfulness don't appear to <i>strongly</i> correlate, any failures in the RAG systems studied here are not due to classical hallucinations. Even in configurations where accuracy degrades, particularly in System D, instructions are still followed faithfully. In practice, this means that any degradation in accuracy is not due to unfaithful behavior, but faithfully executed mistakes. Any errors in accuracy likely arise early in the RAG chain and then are carried along in the pipeline. This observation reinforces a central theme of the study: improving RAG performance requires not only better language models, but also careful attention to the reliability of the control logic in the pipeline.
 
 ```{python}
 
@@ -1281,7 +1254,7 @@ fig.show()
 **Figure 11**. The diminishing returns of increasing context size (k) in naive RAG—costs grow linearly while recall saturates.
 :::
 
-Figure 11 examines the effect of k -- the number of documents retrieved -- on recall and token usage in the naive RAG baseline (System A). This analysis was motivated by an observation that token use by System A is relatively high among the different RAG systems in this study (see Figure 8). This raised the possibility that the value chosen for k (20) was a little too high. Figure 11 shows that recall rapidly improves up to about k=5 to 10, but only modestly improves beyond that, while token use continues to grow linearly. While similar performance in System A in the experiments of this study would have probably been observed with a lower k and incurred smaller token costs, this highlight a general pattern that recurs through this study: retrieval recall often saturates well before system costs do.
+Figure 11 examines the effect of k -- the number of documents retrieved -- on recall and token usage in the naive RAG baseline (System A). This analysis was motivated by an observation, after completing all experiments, that token use by System A was relatively high among the different RAG systems in this study (see Figure 8). This raised the possibility that the value chosen for k (20) was a little too high. Figure 11 shows that recall rapidly improves up to about k=5 to 10, but only modestly improves beyond that, while token use continues to grow linearly. While similar performance in System A in the experiments of this study would have probably been observed with a lower k and incurred smaller token costs, this highlight a general pattern that recurs through this study: retrieval recall often saturates well before system costs do. 
 
 
 ```{python}
@@ -1375,9 +1348,9 @@ fig.show()
 **Figure 12**. System competency profile showing correctness by question type. Complex systems excel at filter and multi-hop categories.
 :::
 
-It can be quickly observed that System C is the most robust performer across nearly all question types. Particularly, it clearly exceeds all other systems in descriptive, factual, contextual, and unanswerable categories. It's also significantly better than System D, despite System D's increased complexity. This suggests possible failure modes resulting from interaction between System D's architectural complexity and the robustness of other system components. 
+It can be quickly observed from Figure 12 that System C is the most robust performer across nearly all question types. Particularly, it clearly exceeds all other systems in descriptive, factual, contextual, and unanswerable categories. It's also significantly better than System D, despite System D's increased complexity. This suggests possible failure modes resulting from interaction between System D's architectural complexity and the robustness of other system components. 
 
-Figure 12 also shows that only the agentic systems (Systems C and D) are capable of answering the "contextual" questions. This is because only these systems contain the a fundamental "agentic" function of rewriting user queries to fit the conversation history to create a query that works better for semantic retrieval. E.g., a vague question of "what year was it released?" gets transformed to "what year was the second Star Wars movie released?", etc.
+Figure 12 also shows that only the agentic systems (Systems C and D) are capable of answering the "contextual" questions. This is because only these systems contain a rudimentary "agentic" function of rewriting follow-up user queries -- using the conversation history as the context -- to create queries that works better for the semantic retrieval step. E.g., a vague question of "what year was it released?" gets transformed to "what year was the second Star Wars movie released?", etc.
 
 Finally, Figure 12 shows that filter and multi-hop questions are only solved reliably by Systems A (Naive) and D (God Mode). In the naive system, these questions succeed mainly due to "context stuffing" -- the large k used for this system (20) increased the chance of finding the correct document. In contrast, System D attempts to solve these questions through explicit decomposition and reranking -- an approach that is theoretically more principled, but, as shown below, can be a liability in configurations with spotty model robustness.
 
@@ -1570,13 +1543,11 @@ fig.show()
 :::
 
 
-
-
 The most remarkably underperforming configuration across all experiments were those with System D paired with Llama 3.1 70B-IQ2. As discussed earlier, the degradation in System D using this LLM was hypothesized mainly to arise from the aggressive 2-bit quantization, which is generally understood to introduce calibration error and reduced numerical precision in attention and feed-forward layers of the transformer model. However, is that the whole explanation?
 
-To better isolate the effect of reduced quantization on the degradation of System D, a limited follow-up experiment was conducted using the 4-bit quantized variant of Llama 3.1 70B (the "default", and the version actually authored by Meta), together with System D and openai-large embeddings, to compare with the 2-bit analog configuration. My local hardware couldn't hold this system entirely in VRAM, so CPU offloading was required and inference speeds went through the floor; but the point of this experiment wasn't speed, it was correctness. 
+To better isolate the effect of reduced quantization on the degradation of System D, a limited follow-up experiment was conducted using the 4-bit quantized variant of Llama 3.1 70B (the "default", and the version actually authored by Meta), together with System D and OpenAI-large embeddings, to compare with the 2-bit analog configuration. My local hardware couldn't hold this system entirely in VRAM, so CPU offloading was required, inference speeds went through the floor; however, the point of interest of this experiment wasn't speed, it was correctness. 
 
-Moving from 2-bit to 4-bit quantization <i>did</i> result in an improvement in correctness, but not as much as expected. See Figure 13. Because this would've been the largest LLM in the study, I was expecting correctness to be at or exceeding 70%, which was the apparent ceiling across all experiments in the study. However, it was 47.7% -- only a modest improvement from the performance at 2-bit (40.8%). This difference in performance was compared with the difference between the 4-bit and 2-bit versions of Qwen 2.5 32B, which was virtually non-existent (both at ~63%)  
+Moving from 2-bit to 4-bit quantization <i>did</i> result in an improvement in correctness for Llama 3.1 70B, but surprisingly not very much. See Figure 13. Because this would've been the largest LLM in the study, I was expecting correctness to be at or exceeding 70%, which was the apparent ceiling across all experiments in the study. However, it was 47.7% -- only a modest improvement from the performance at 2-bit (40.8%). This difference in performance was compared with the difference between the 4-bit and 2-bit versions of Qwen 2.5 32B, which was virtually non-existent (both at ~63%)  
 
 The difference in performance degradation between Llama 3.1 70B and Qwen 2.5 32B was striking. Why is there such a big difference? The different bit-widths certainly contributed to the performance differential in both cases, but this phenomenon alone was insufficient to explain the large performance drop for Llama 3.1 70B in System D. 
 
@@ -1586,7 +1557,7 @@ Notably, this effect appears to be architecture-sensitive. Despite its smaller p
 
 It is important to emphasize that Llama 3.1 70B-IQ2 is a community-quantized variant rather than a first-party Meta release. As such, these results should not be interpreted as definitive statements about the intrinsic capabilities of the base Llama 3.1 architecture. Rather, they highlight how quantization choices and architectural sensitivity can interact with system-level design decisions in non-obvious ways.
 
-Taken together, these findings suggest the existence of a fragility threshold in certain large models: beyond a particular level of system complexity, additional control mechanisms may no longer compensate for representational noise, and may instead exacerbate it. This has practical implications for practitioners seeking to deploy highly agentic RAG systems on constrained hardware. In such cases, smaller or more quantization-tolerant models may outperform larger counterparts, not despite their size, but because of their greater stability under iterative control.
+To summarize, these findings suggest the existence of a fragility threshold in certain large models: beyond a particular level of system complexity, additional control mechanisms may no longer compensate for representational noise, and may instead exacerbate it. This has practical implications for practitioners seeking to deploy highly agentic RAG systems on constrained hardware. In such cases, smaller or more quantization-tolerant models may outperform larger counterparts, not despite their size, but because of their greater stability under iterative control.
 
 # Conclusions
 
