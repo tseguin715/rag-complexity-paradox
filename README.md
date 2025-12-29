@@ -142,7 +142,16 @@ This will create the four databases in the db subdirectory using source_data.ndj
 python build_child_parent_db.py
 ```
 
+### Running the Full Benchmark
 
+To reproduce the entire suite of 96 experiments, you can execute the provided batch script:
+```bash
+run_all_experiments.bat
+```
 
+Note: This may take several hours/days depending on your hardware and API limits.
 
-
+Running Specific Configurations You can also run individual experiments using the CLI arguments:
+```bash
+python scripts/run_baselines.py --llm gpt4o --db openai_large
+```
