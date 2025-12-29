@@ -1,0 +1,1739 @@
+<!-- ---
+title: "The RAG Complexity Paradox"
+format:
+  html:
+    page-layout: full
+    toc: true
+    theme: cosmo
+    include-in-header:
+      - text: |
+          <style>
+          body { max-width: 1800px; margin: 0 auto; }
+          .quarto-container { max-width: 1800px; }
+          .cell-output-display { width: 100%; }
+          .plotly-graph-div { width: 100% !important; }
+          .dataTables_wrapper { width: 100%; }
+          table.dataTable { width: 100% !important; }
+          .panel-tabset .tab-content { width: 100%; }
+          .column-screen-inset { max-width: 1800px; margin: 0 auto; }
+          .fig-caption { font-size: 0.95em; color: #555; margin-top: 0.5em; margin-bottom: 1.5em; }
+          .tbl-caption { font-size: 0.95em; color: #555; margin-top: 0.5em; margin-bottom: 1.5em; }
+          </style>
+execute:
+  echo: false
+jupyter:
+  kernelspec:
+    display_name: "Python 3.10 (Project)"
+    language: python
+    name: python310
+--- -->
+
+---
+title: "The RAG Complexity Paradox"
+subtitle: "Why 20× more spend didn’t beat a ~70% ceiling"
+author:
+  - name: Trevor Seguin
+date: last-modified
+date-format: "MMMM D, YYYY"
+description: "After evaluating 96 RAG configurations across 4 architectures, 6 LLMs, and 4 embedding models on a 100-question TMDB benchmark, there seems to be no reliable improvement from highly complex agentic systems. The top configurations clustered around ~70% correctness (the practical ceiling for the testing conditions), and several very different configurations tie for best. Moderate agentic control (System C: query rewriting + doc grading) consistently lands on the efficiency frontier of latency and accuracy (e.g. ~70% at 1s with GPT-4o + OpenAI-large embeddings). The most complex architecture -- System D God Mode -- can achieve high performance in correctness and retrieval recall, but turned out to be especially brittle with heavily-quantized models. A follow-up study of God Mode degradation for 2-bit compression showed it's model dependent: Qwen 32B appears to show no substantial degradation from 4-bit to 2-bit, while Llama 3.1 70B degrades much more. All code + raw outputs are in the repo (link)."
+keywords:
+  - RAG
+  - retrieval-augmented generation
+  - agentic RAG
+  - RAG evaluation
+  - reranking
+  - cross-encoder reranker
+  - query rewriting
+  - document grading
+  - hybrid search
+  - vector search
+  - embeddings
+  - recall@k
+  - MRR
+  - pareto frontier
+  - latency
+  - token cost
+  - quantization
+  - 2-bit quantization
+  - 4-bit quantization
+  - local LLM
+  - LLMOps
+
+image: abstract_long.png   # social preview card
+twitter-card: true
+format:
+  html:
+    include-after-body:
+      - text: |
+          <hr>
+          <div class="d-flex justify-content-between small text-muted">
+            <div>© Trevor Seguin</div>
+            <div>
+              <a href="https://github.com/tseguin715/rag-complexity-paradox">Repo</a> ·
+              <a href="https://www.linkedin.com/in/trevor-seguin">LinkedIn</a> ·
+              <a href="mailto:tseguin715@gmail.com">Email</a>
+            </div>
+          </div>
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    smooth-scroll: true
+    link-external-newwindow: true
+    code-tools: true
+    code-fold: hide
+    fig-cap-location: margin
+    tbl-cap-location: margin
+    lightbox: true
+    page-layout: full
+---
+
+![](abstract_long.png){width=100%}
+
+::: {.callout-tip icon=false}
+## Key takeaways (for builders)
+- **Complexity ≠ accuracy**: Top configs cluster around ~70% correctness; no consistent gain from “God Mode.”
+- **Cost gap is real**: ~20× spend for negligible gain.
+- **System C is the sweet spot**: best frontier position (accuracy/latency/tokens).
+- **“God Mode” is fragile**: reranking + overload introduces new failure modes.
+
+:::
+
+# What this is
+
+96 RAG configurations were benchmarked on a fixed TMDB QA task to understand how architecture complexity affects correctness, latency, and cost. The focus was practical tradeoffs and failure modes that could occur in real RAG pipelines.
+
+
+
+# Introduction
+
+
+Retrieval Augmented Generation (RAG) has been a standard in external data retrieval for LLMs since approximately the early 2020s. The approach was popularized by Lewis et al. in 2020 and has since been widely adopted in both research and production environments. NotebookLM is perhaps a well-known example: uploaded documents are converted to a vector database as embeddings, and a numerical representation of the user's query is checked against the embeddings for the closest match for retrieval and generation. Other examples are Perplexity, ChatGPT's document and browsing features, and GitHub Copilot Chat with repository indexing.
+
+The process of equipping an LLM with knowledge outside of its training data is an ongoing area of research. There are many failure points in the process; for example -- what is the retrieval method? How are the documents encoded?  How many documents should be retrieved? And then, once implemented -- how well does it perform? What's the quality of the responses? How fast is it? Can it be applied at scale?
+
+An understandable expectation is that RAG should improve when "agentic" systems enter the picture. Surprisingly, this intuition does not always hold. In this study, we observe cases where additional layers of complexity -- including iterative retrieval, grading, and query rewriting -- can degrade overall system performance, particularly for smaller or aggressively quantized models.
+
+About "agentic" RAG: when you think about it, it might sound a little silly. Why does a LLM need to tell itself how to retrieve information? The simplest form of RAG -- a single-pass lookup of documents based on semantic similarity to the input query -- performs well in some contexts, but faces limitations when complex reasoning is required. These include scenarios requiring filtering, aggregation, or query reformulation; 'multi-hop' reasoning (connecting multiple documents with disparate semantic meanings); or cases where a wider understanding of the corpus is necessary. "Agentic" systems attempt to address these situations by involving LLMs in additional steps of the retrieval process. For example -- a LLM might take a user query and ask: does this need to be rewritten to fit the context of the chat history? Does it need to be rewritten to be more "compatible" with the database embeddings? And then: are the retrieved documents actually relevant? 
+
+This study aims to be a small investigation in the usability of several modern LLMs and embedding models -- including popular commercial offerings as well as some smaller, open-source models -- in different RAG architectures for retrieval of data for TV and movies. We study structured question answering over a fixed corpus of movie and television data, including titles, metadata, and short plot descriptions. The question consists of simple factual lookups, filtering, aggregation, and multi-hop reasoning. System performance is evaluated in several metrics: retrieval quality (e.g., recall and MRR), answer correctness and faithfulness as judged by a reference LLM, and overall latency. The intent is not to model a production-scale deployment, but rather to compare tradeoffs under controlled conditions, with a particular focus on how increasing RAG complexity interacts with model size and architecture. The scope of RAG systems for this study includes simple "naive" RAG and considers a handful of "agentic" systems of increasing complexity. 
+
+Part of the motivation for this study came from my discovery of a 70B model -- Llama 3.1 70B-IQ2 -- that could run entirely on my RTX 4090(!). In the local LLM "world", it seemed to be kind of an informal benchmark to be able to run a 70b model in home hardware (without CPU offloading). However, the lowest commonly accepted quantization for anything useful seems to be 4-bit. The 4-bit quant of Llama 3.1 70b requires about ~40gb of RAM, so even a video card like the RTX 4090 can't hold it without offloading partially to the CPU and tanking the inference speed. After loading up Llama 3.1 70B-IQ2 in Ollama recently, I was excited to see it running at about 50 tokens/second, which is very useable. However, while this was all well and good, it raised an obvious question: what is the hidden cost of such an aggressive quantization? This study aimed to find out whether this and other inexpensive models can be used as more than a "toy" or proof-of-concept, while throwing some some high-quality commercial models into the fray for comparison.
+
+# Methods
+
+### Questions
+
+Data was extracted from tmdb.org to create 136,788 documents of TV shows and movies released from 1980 to 2025, whose main text was a brief description of the TV show or movie; and metadata for year, rating, votes, genre, language, popularity, and type (TV or movie) were included. 
+
+100 questions (the 'Gold' set) were written to test different reasoning and retrieval mechanisms. The question types fell into the following categories:
+
+
+```{python}
+#| column: screen-inset
+
+import os
+import pandas as pd
+import json
+import plotly.express as px
+
+df_data = {'Question Type': {0: 'descriptive', 1: 'factual', 2: 'unanswerable', 3: 'multi_hop', 4: 'filter', 5: 'contextual'}, 'Count': {0: 29, 1: 25, 2: 20, 3: 10, 4: 9, 5: 7}}
+
+# 2. Recreate the DataFrame
+type_counts = pd.DataFrame.from_dict(df_data, orient='columns')
+
+# Define Seaborn 'Deep' Palette Hex Codes manually
+seaborn_deep = [
+    '#4C72B0', # Blue
+    '#DD8452', # Orange
+    '#55A868', # Green
+    '#C44E52', # Red
+    '#8172B3', # Purple
+    '#937860', # Brown
+    '#DA8BC3', # Pink
+    '#8C8C8C', # Gray
+    '#CCB974', # Yellow
+    '#64B5CD'  # Cyan
+]
+
+fig_dist = px.bar(
+    type_counts, 
+    x='Question Type', 
+    y='Count',
+    text='Count',
+    template="plotly_white",
+    color='Question Type',
+    color_discrete_sequence=seaborn_deep
+)
+
+fig_dist.update_traces(textposition='outside')
+
+fig_dist.update_layout(
+    height=500, 
+    showlegend=False,
+    width=None,
+    autosize=True,
+    margin=dict(l=20, r=20)
+)
+
+fig_dist.show()
+```
+
+::: {.fig-caption}
+**Figure 1**. Distribution of question types in the 100-question evaluation set.
+:::
+
+Some examples of each category were:
+
+```{python}
+import pandas as pd
+from itables import show
+
+# 1. Prepare Data
+sample_questions = [
+    {
+        'Category': 'Factual',
+        'Question': 'What is the rating of "Bluefin"?',
+        'Gold Answer': '7.2',
+        "Why It's Challenging": 'Simple lookup - tests basic retrieval'
+    },
+    {
+        'Category': 'Descriptive',
+        'Question': 'In Sweet Trap (2024), the apprentice falls into whose trap?',
+        'Gold Answer': 'Jiang Jie',
+        "Why It's Challenging": 'Requires finding specific plot details'
+    },
+    {
+        'Category': 'Filter',
+        'Question': 'How many movies in 2025 allude to the holocaust?',
+        'Gold Answer': '2',
+        "Why It's Challenging": 'Needs metadata filtering + counting'
+    },
+    {
+        'Category': 'Multi-hop',
+        'Question': 'What is the 4th oldest Star Wars movie?',
+        'Gold Answer': 'Star Wars: Droids - The Great Heep',
+        "Why It's Challenging": 'Requires sorting then selecting nth item'
+    },
+    {
+        'Category': 'Contextual',
+        'Question': 'What country is he from?',
+        'Gold Answer': 'New Zealand',
+        "Why It's Challenging": 'Depends on conversation history'
+    },
+    {
+        'Category': 'Unanswerable',
+        'Question': 'What year was "The Last Pixel" released?',
+        'Gold Answer': 'Movie not in database',
+        "Why It's Challenging": 'Tests ability to say "I don\'t know"'
+    }
+]
+
+df_sample = pd.DataFrame(sample_questions)
+
+# 2. Render Table (Default Styling)
+show(
+    df_sample,
+    classes="display compact",
+    style="width:100%; font-size: 16px; white-space: normal;",
+    scrollX=False,
+    columnDefs=[
+        {"className": "dt-left", "targets": "_all"},
+        {"width": "10%", "targets": 0},
+        {"width": "35%", "targets": 1},
+        {"width": "15%", "targets": 2},
+        {"width": "40%", "targets": 3}
+    ]
+)
+
+```
+
+::: {.tbl-caption}
+**Table 1**. Sample questions from the 100-question evaluation set, showing each category and its associated challenge.
+:::
+
+
+### RAG Architectures
+
+As mentioned, the RAG systems evaluated in this study ranged from a simple "naive" baseline retrieval to complex multi-stage systems. Each represents a different idea on how to improve RAG performance.
+
+::: {layout-ncol=2 layout-valign="bottom"}
+```{mermaid}
+%%| fig-height: 6
+flowchart TD
+    User[User Query]
+    
+    subgraph Retrieval["Retrieval Phase"]
+        User --> Embed[Embed Query]
+        Embed --> Search["Vector Search<br/>(k=20)"]
+        Search --> Docs[Retrieved Docs]
+    end
+    
+    subgraph Generation["Generation Phase"]
+        Docs --> Format[Format Context]
+        Format --> Prompt[Construct Prompt]
+        Prompt --> LLM[LLM Generate]
+        LLM --> Output[Answer]
+    end
+
+    style User fill:#e8f4f8,stroke:#333,stroke-width:2px
+    style LLM fill:#f0e6ff,stroke:#333,stroke-width:2px
+    style Output fill:#e8f8e8,stroke:#333,stroke-width:2px
+    style Retrieval fill:#f9f9f9,stroke:#999
+    style Generation fill:#f9f9f9,stroke:#999
+```
+
+```{mermaid}
+%%| fig-height: 6
+flowchart TD
+User[User Query] --> Extract[Extract Metadata]
+Extract --> Search{Search Type}
+
+Search -->|Has Filters| Hybrid["Hybrid Search<br/>(Vector + Metadata)"]
+Search -->|No Filters| Vector["Vector Search<br/>(k=20)"]
+
+Hybrid --> Docs[Retrieved Docs]
+Vector --> Docs
+
+Docs --> CoT["Chain of Thought<br/>Prompt"]
+CoT --> LLM[LLM Generate]
+LLM --> Answer[Answer]
+
+style User fill:#e8f4f8,stroke:#333,stroke-width:2px
+style LLM fill:#f0e6ff,stroke:#333,stroke-width:2px
+style Extract fill:#fff9e6,stroke:#333,stroke-width:2px
+style Answer fill:#e8f8e8,stroke:#333,stroke-width:2px
+```
+
+```{mermaid}
+%%| fig-height: 6
+flowchart TB
+User[User Query] --> Retrieve["Vector Search(k=20)"]
+
+Retrieve --> Grade{Grade Docs}
+Grade -->|Relevant| Keep[Keep Doc]
+Grade -->|Irrelevant| Reject[Reject]
+
+Keep --> Check{Enough?}
+Reject --> Check
+
+%% Force the YES branch to the left
+Check -->|Yes| YDummy(( ))
+YDummy --> Generate["Generate Answer"]
+
+Check -->|No| Expand["Expand Search"]
+Expand --> Grade
+
+Generate --> Verify{Confident?}
+Verify -->|Yes| Answer[Final Answer]
+Verify -->|No| Refine["Refine + Retry"]
+Refine --> Generate
+
+style User fill:#e8f4f8,stroke:#333,stroke-width:2px
+style Grade fill:#ffe6e6,stroke:#333,stroke-width:2px
+style Generate fill:#f0e6ff,stroke:#333,stroke-width:2px
+style Answer fill:#e8f8e8,stroke:#333,stroke-width:2px
+style Verify fill:#fff0f0,stroke:#333,stroke-width:1px
+style YDummy fill:#ffffff00,stroke:#ffffff00
+```
+
+```{mermaid}
+%%| fig-height: 6
+
+flowchart TD
+User[User Query] --> Context["LLM: Contextualize"]
+Context --> Wide["Wide Retrieval(k=100)"]
+
+subgraph Rerank["Reranking Pipeline"]
+    Wide --> Cross["Cross-Encoder<br/>Reranker"]
+    Cross --> Top["Select Top 10"]
+end
+
+Top --> Grade["LLM: Grade Docs"]
+Grade --> Generate["LLM: Generate<br/>with Citations"]
+Generate --> Output["Answer + Citations"]
+
+style Context fill:#f0e6ff,stroke:#333,stroke-width:2px
+style Cross fill:#ffe6e6,stroke:#333,stroke-width:3px
+style Grade fill:#f0e6ff,stroke:#333,stroke-width:2px
+style Generate fill:#f0e6ff,stroke:#333,stroke-width:2px
+style Output fill:#e8f8e8,stroke:#333,stroke-width:2px
+style Rerank fill:#f9f9f9,stroke:#999
+```
+
+:::
+
+::: {.fig-caption}
+**Figure 2**. RAG system architectures evaluated: (a) System A - Baseline RAG with simple retrieval + generation, (b) System B - Hybrid Search with vector + metadata and CoT prompting, (c) System C - Agentic RAG with document grading and adaptive generation, (d) System D - "God Mode" with maximum complexity and reranking.
+:::
+
+- **SysA**: Simple one-shot RAG. No bells or whistles. Retrieves 20 documents by semantic matching and inserts all of them into the context.
+- **SysB**: Hybrid Search RAG. Uses metadata filtering in addition to semantic search. Has question-type detection (filtering, multi-hop, etc) with special handling for each.
+- **SysC**: Agentic RAG. LLM-based document grading (decides if retrieved docs are relevant), query rewriting for follow-up questions using chat history, and adaptive generation.
+- **SysD**: 'God Mode' agentic RAG with reranking. Casts a wide net (100 documents) and selects 10 documents by BGE-reranker-v2-m3 reranking. 
+
+### LLMs
+
+Generally speaking, the selection of LLMs in this study leaned more towards value options that might be preferable in larger scale production settings. GPT-4o was included as a reference, as well as a couple other inexpensive closed-source models, as well as some smaller open-source models: 
+
+
+```{python}
+
+import pandas as pd
+from itables import show
+
+# 1. Prepare Data
+models_data = [
+    {'Model': 'GPT-4o', 'Provider': 'OpenAI', 'Params': '~1T*', 'Deployment': 'Cloud API', 
+     'Cost': '$5/1M tokens', 'Speed': '~100 tok/s', 'Purpose': 'Reference baseline', 'Category': 'Premium'},
+    
+    {'Model': 'GPT-4o-mini', 'Provider': 'OpenAI', 'Params': '~100B*', 'Deployment': 'Cloud API', 
+     'Cost': '$0.15/1M tokens', 'Speed': '~150 tok/s', 'Purpose': 'Cost-optimized', 'Category': 'Budget'},
+    
+    {'Model': 'Gemini Flash', 'Provider': 'Google', 'Params': '~50B*', 'Deployment': 'Cloud API', 
+     'Cost': '$0.075/1M tokens', 'Speed': '~200 tok/s', 'Purpose': 'Speed-optimized', 'Category': 'Budget'},
+    
+    {'Model': 'Qwen 2.5 32B', 'Provider': 'Alibaba', 'Params': '32B', 'Deployment': 'Local (4-bit)', 
+     'Cost': '$0', 'Speed': '~60 tok/s', 'Purpose': 'Quality local', 'Category': 'Local'},
+    
+    {'Model': 'Qwen 2.5 32B-Q2', 'Provider': 'Alibaba', 'Params': '32B', 'Deployment': 'Local (2-bit)', 
+     'Cost': '$0', 'Speed': '~80 tok/s', 'Purpose': 'Speed local', 'Category': 'Local'},
+    
+    {'Model': 'Llama 3.1 70B-IQ2', 'Provider': 'Meta', 'Params': '70B', 'Deployment': 'Local (2-bit)', 
+     'Cost': '$0', 'Speed': '~50 tok/s', 'Purpose': 'Max params on 4090', 'Category': 'Local'}
+]
+
+df_models = pd.DataFrame(models_data)
+df_models.rename(columns={'Params': 'Size', 'Purpose': 'Test Purpose'}, inplace=True)
+
+# 2. Define Styling Logic
+def color_by_category(row):
+    cat = row['Category']
+    if cat == 'Premium':
+        bg_color = '#e8f4f8'
+    elif cat == 'Budget':
+        bg_color = '#f0f8e8'
+    else: 
+        bg_color = '#fff9e6'
+        
+    return [f'background-color: {bg_color}' for _ in row]
+
+# 3. Render Table
+show(
+    df_models.style.apply(color_by_category, axis=1),
+    classes="display", 
+    scrollX=False,
+    columnDefs=[
+        {"className": "dt-center", "targets": "_all"},
+        {"visible": False, "targets": 7}
+    ],
+    allow_html=True
+)
+```
+
+::: {.tbl-caption}
+**Table 2**. Test suite of 6 models across 3 deployment scenarios. *Estimated parameters not disclosed by providers.
+:::
+
+Qwen 2.5 32B (4-bit quant) and Llama 3.1 70B-IQ2 (2-bit quant) are within the 24GB VRAM limit of the RTX 4090. Because Llama 3.1 70B-IQ2 is 2-bit, I also threw in Qwen 2.5 32B-Q2 to test the degradation, if any, when going from 4 to 2-bit, and get a sense of what might be missing from Llama 3.1 70B-IQ2.
+
+
+### Embeddings
+
+The embedding models include commercial state of the art and some reputable open source models.
+
+```{python}
+
+import pandas as pd
+from itables import show
+
+# 1. Prepare Data
+embeddings_data = [
+    {'Model': 'OpenAI Large', 'Dimensions': 3072, 'Provider': 'OpenAI', 
+     'Cost': '$0.13/1M tokens', 'Quality': '⭐⭐⭐⭐⭐', 'Selection Rationale': 'SOTA baseline'},
+    {'Model': 'OpenAI Small', 'Dimensions': 1536, 'Provider': 'OpenAI', 
+     'Cost': '$0.02/1M tokens', 'Quality': '⭐⭐⭐⭐', 'Selection Rationale': 'Cost/quality balance'},
+    {'Model': 'Jina v3', 'Dimensions': 1024, 'Provider': 'Jina AI', 
+     'Cost': 'Free (local)', 'Quality': '⭐⭐⭐⭐', 'Selection Rationale': 'Best open-source'},
+    {'Model': 'BGE-M3', 'Dimensions': 1024, 'Provider': 'BAAI', 
+     'Cost': 'Free (local)', 'Quality': '⭐⭐⭐', 'Selection Rationale': 'Popular baseline'}
+]
+
+df_emb = pd.DataFrame(embeddings_data)
+
+# 2. Define Styling Logic
+def color_by_provider(row):
+    bg_color = '#e8f4f8' if 'OpenAI' in row['Provider'] else '#f0f8e8'
+    return [f'background-color: {bg_color}' for _ in row]
+
+# 3. Render Table
+show(
+    df_emb.style.apply(color_by_provider, axis=1),
+    classes="display",
+    scrollX=False,
+    columnDefs=[
+        {"className": "dt-center", "targets": "_all"},
+        {"width": "150px", "targets": 5}
+    ],
+    allow_html=True
+)
+```
+
+::: {.tbl-caption}
+**Table 3**. Embedding models evaluated, showing the cost-quality trade-off landscape.
+:::
+
+### LLM-as-judge scoring
+
+Answer quality was scored with a fixed judge model (GPT-5.1, temperature 0) to keep evaluations consistent across all 96 configurations. For each question, the judge received the question, the gold answer, and the system’s generated answer, and returned JSON with correctness_score and faithfulness_score in [0,1] plus a short justification (single deterministic pass per answer).
+Interpretation: correctness measures agreement with the gold answer (paraphrases allowed). Faithfulness here is best interpreted as task/constraint adherence (e.g., not fabricating an answer when unsupported); it is not a document-grounding check because the judge was not shown retrieved context. Retrieval quality is evaluated separately using recall/MRR against gold document IDs. LLM judging can be style-sensitive, so results should be read as a consistent comparative proxy rather than absolute ground truth.
+
+**Note on GPT-5.2 ("During preparation of this manuscript..."): ** After completion of all experiments, and while this article was being prepared, GPT-5.2 was released. A spot-check rerun was performed for the GPT-4o/OpenAI-large/SysD configuration with GPT-5.2 as the judge. The results were similar, so the conclusions appear robust to the judge version.
+
+# Results and Discussion
+
+### Top Configurations
+
+```{python}
+
+from itables import show
+import pandas as pd
+
+df=pd.read_csv('results_table.csv')
+# 1. Prepare the Data
+cols_to_keep = [
+    'sys', 'llm', 'db', 
+    'correctness_score', 'faithfulness_score', 
+    'latency_ms', 'main_total_tokens', 'retrieval_recall'
+]
+table_df = df[cols_to_keep].copy()
+
+# Rename for readability
+table_df.columns = [
+    'System', 'LLM', 'Embedding', 
+    'Correctness', 'Faithfulness', 
+    'Latency (ms)', 'Tokens', 'Recall'
+]
+
+# Clean System Names
+system_map = {
+    "SysA": "A (Naive)", "SysC": "B (Hybrid)", 
+    "SysD": "C (Agentic)", "SysG": "D (God Mode)"
+}
+table_df['System'] = table_df['System'].map(lambda x: system_map.get(x, x))
+
+# Sort by Correctness (Default view)
+table_df = table_df.sort_values(by='Correctness', ascending=False).reset_index(drop=True)
+
+# 2. Format the Values for Display
+table_df['Correctness'] = table_df['Correctness'].map('{:.3f}'.format)
+table_df['Faithfulness'] = table_df['Faithfulness'].map('{:.3f}'.format)
+table_df['Recall'] = table_df['Recall'].map('{:.3f}'.format)
+table_df['Latency (ms)'] = table_df['Latency (ms)'].map('{:,.0f}'.format)
+table_df['Tokens'] = table_df['Tokens'].map('{:,.0f}'.format)
+
+table_df['Embedding']=table_df['Embedding'].apply(lambda x: x.replace('',''))
+table_df['LLM']=table_df['LLM'].apply(lambda x: x.replace('flash-latest','2.5-flash'))
+show(
+    table_df, 
+    classes="display compact",
+    paging=True,
+    scrollX=False,
+    order=[[3, 'desc']],
+    columnDefs=[{"className": "dt-center", "targets": "_all"}]
+)
+```
+
+::: {.tbl-caption}
+**Table 4**. All 96 configurations ranked by correctness score (default sort).
+:::
+
+Table 4 shows the raw results for all 96 evaluated configurations, sorted by correctness. Each row corresponds to a unique configuration of RAG sytem architecture, LLM, and embedding model; with additional columns for metrics such as faithfulness, latency, token usage, and retrieval recall. 
+
+A cursory look at the table shows a few high-level patterns. First, there appears to be a relatively narrow band of configurations at around 70% correctness, no model "convincingly" better than the rest. GPT-4o expectedly shows up in many of the top-ranked configurations, but some open-source LLMs and embedding models show up as well, such as Qwen2.5 32B and Jina-V3 for embeddings. 
+
+Latency and token usage vary more widely. Some configurations achieve among the highest correctness with relatively low latency (~1000ms), while others suffer a latency penalty with no corresponding gains. Is there a benefit to the lower-ranked configurations in a more comprehensive cost-benefit analysis? This question is examined more in later sections.
+
+
+:::{.panel-tabset}
+
+### By Model
+```{python}
+#| fig-height: 6
+#| layout-ncol: 1
+
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+
+df = pd.read_csv('results_table.csv')
+df['llm']=df['llm'].apply(lambda x: x.replace('gemini-flash-latest','gemini-2.5-flash'))
+nano_colors = ["#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A"]
+
+def style_figure(fig, y_title):
+    fig.update_layout(
+        yaxis_title=y_title,
+        template="plotly_white",
+        height=500,
+        showlegend=False,
+        font=dict(family="Arial", size=14),
+        autosize=True,
+        margin=dict(l=0, r=0, t=30, b=0)
+    )
+    fig.update_traces(meanline_visible=True, points='all', jitter=0.05,
+                      marker=dict(size=4, opacity=0.6))
+    return fig
+
+fig_llm = px.violin(
+    df, x="llm", y="correctness_score", color="llm",
+    box=True,
+    color_discrete_sequence=nano_colors
+)
+style_figure(fig_llm, "Correctness Score")
+
+fig_llm.show(config={'responsive': True})
+```
+
+::: {.fig-caption}
+**Figure 3**. LLM performance distribution shows Llama 70B-IQ2's high variance under 2-bit quantization.
+:::
+
+### By Embedding
+```{python}
+#| echo: false
+
+fig_db = px.violin(
+    df, x="db", y="correctness_score", color="db",
+    box=True,
+    color_discrete_sequence=nano_colors
+)
+style_figure(fig_db, "Correctness Score")
+fig_db.show(config={'responsive': True})
+```
+
+::: {.fig-caption}
+**Figure 4**. Embedding model performance shows free Jina-v3 matching paid OpenAI, with BGE-M3 notably worse.
+:::
+
+### By System
+```{python}
+#| echo: false
+
+def clean_sys(name):
+    if "SysA" in name: return "System A"
+    if "SysC" in name: return "System B"
+    if "SysD" in name: return "System C"
+    if "SysG" in name: return "System D"
+    return name
+
+df['clean_sys'] = df['sys'].apply(clean_sys)
+
+fig_sys = px.violin(
+    df, x="clean_sys", y="correctness_score", color="clean_sys",
+    box=True,
+    color_discrete_map={
+        "System A": "#636EFA", 
+        "System B": "#EF553B", 
+        "System C": "#00CC96", 
+        "System D": "#AB63FA"
+    }
+)
+style_figure(fig_sys, "Correctness Score")
+fig_sys.update_xaxes(categoryorder='array', categoryarray=['System A', 'System B', 'System C', 'System D'])
+fig_sys.show(config={'responsive': True})
+```
+
+::: {.fig-caption}
+**Figure 5**. System architecture stability. 'God Mode' (System D) exhibits high variance.
+:::
+
+:::
+
+Distributional View by Model, Embedding, and System
+
+To move beyond ranked averages, Figure 5 visualizes correctness distributions using violin plots grouped by generator model, embedding model, and system architecture. 
+
+When grouped by generator model, most models exhibit relatively tight distributions centered around the mid-0.6 range. However, Llama 3.1 70B-IQ2 stands out with a much broader variance: while some configurations within this LLM perform competitively, others degrade sharply, producing a long lower tail. This suggests that the model’s performance is highly sensitive to other components of its configuration.
+
+Grouping by embedding model reveals a more modest effect. OpenAI and Jina embeddings produce slightly higher median correctness and tighter distributions, while bge-m3 shows greater variance and a lower median. Importantly, embeddings seem to influence consistency more than peak performance.
+
+The most striking pattern appears when results are grouped by system architecture. Systems A, B, and C exhibit relatively compact distributions, with gradual improvements from naive retrieval (System A) through reranking and query rewriting (Systems B and C). In contrast, System D (“God Mode”) shows substantially higher variance. While its best configurations are among the highest in correctness, its worst configurations lag behind significantly. This instability suggests that new modes of failure are introduced by its increased complexity.
+
+Altogether, these results suggest that increasing RAG sophistication does not necessarily translate to improved performance. Indeed, more complex systems appear to trade robustness for flexibility. In particular, highly agentic pipelines can amplify weaknesses in models paired with it—especially for aggressively quantized or smaller models—leading to unpredictable outcomes.
+
+Why does System D behave this way, and what are the conditions that lead to its underperformance? The following sections examine this.
+
+
+### Correctness, Cost, and Latency
+
+```{python}
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+import numpy as np  # Added for log calculation
+
+sys_config = {
+    "SysA": {"label": "SysA",    "color": "#4C72B0"},
+    "SysC": {"label": "SysB",   "color": "#DD8452"},
+    "SysD": {"label": "SysC",  "color": "#55A868"},
+    "SysG": {"label": "SysD", "color": "#C44E52"}
+}
+
+color_map_final = {v['label']: v['color'] for k, v in sys_config.items()}
+
+df = pd.read_csv('results_table.csv')
+
+df['db']=df['db'].replace('jina-embeddings-v3','jina-v3')
+
+def get_system_label(name):
+    for key, config in sys_config.items():
+        if key in name:
+            return config['label']
+    return name
+
+df['Article_System'] = df['experiment_name'].apply(get_system_label)
+
+fig_main = px.scatter(
+    df,
+    x="latency_ms",
+    y="correctness_score",
+    color="Article_System",
+    symbol="db",
+    size="correctness_score",
+    hover_data=["llm", "experiment_name", "main_total_tokens"],
+    template="plotly_white",
+    color_discrete_map=color_map_final
+)
+
+fig_main.add_vline(x=1000, line_width=1, line_dash="dash", line_color="grey", annotation_text="1s UX Target")
+
+# Calculate Pareto Frontier
+sorted_df = df.sort_values('latency_ms')
+frontier_points = []
+max_correctness = -1
+
+for index, row in sorted_df.iterrows():
+    if row['correctness_score'] > max_correctness:
+        frontier_points.append(row)
+        max_correctness = row['correctness_score']
+
+frontier_df = pd.DataFrame(frontier_points)
+
+fig_main.add_trace(
+    go.Scatter(
+        x=frontier_df['latency_ms'],
+        y=frontier_df['correctness_score'],
+        mode='lines',
+        name='Efficiency Frontier',
+        line=dict(color='black', width=2, dash='dash')
+    )
+)
+
+# --- NEW: Calculate ranges dynamically ---
+min_lat = df['latency_ms'].min()
+max_lat = df['latency_ms'].max()
+
+# Log Range (Plotly expects log10 values for range when type='log')
+# Adding ~5% padding so bubbles don't get cut off
+log_padding = 0.1 
+range_log = [np.log10(min_lat) - log_padding, np.log10(max_lat) + log_padding]
+
+# Linear Range (Plotly expects absolute values)
+lin_padding = (max_lat - min_lat) * 0.05
+range_linear = [min_lat - lin_padding, max_lat + lin_padding]
+
+# Define buttons with explicit ranges
+updatemenus = [
+    dict(
+        type="buttons",
+        direction="left",
+        buttons=list([
+            dict(
+                args=[{
+                    "xaxis.type": "log", 
+                    "xaxis.range": range_log
+                }],
+                label="Log Scale",
+                method="relayout"
+            ),
+            dict(
+                args=[{
+                    "xaxis.type": "linear", 
+                    "xaxis.range": range_linear
+                }],
+                label="Linear Scale",
+                method="relayout"
+            )
+        ]),
+        pad={"r": 10, "t": 10},
+        showactive=True,
+        x=0.0,
+        xanchor="left",
+        y=1.15,
+        yanchor="top",
+        bgcolor="white",
+        bordercolor="#c7c7c7"
+    ),
+]
+
+# Set default start to log
+fig_main.update_xaxes(type="log", range=range_log, title="Latency (ms)")
+fig_main.update_yaxes(title="Correctness Score")
+
+fig_main.update_layout(
+    height=600,
+    margin=dict(l=10, r=10, t=50, b=50),
+    legend_title_text="Architecture",
+    updatemenus=updatemenus
+)
+
+fig_main.show()
+```
+
+::: {.fig-caption}
+**Figure 6**. RAG performance trade-off between correctness and latency. The efficiency frontier shows optimal configurations.
+:::
+
+Figure 6 shows the trade-off between correctness and latency across all evaluated RAG configurations. Results are shown on a logarithmic scale for latency, to accommodate for the wide variance in latencies that appear in some of the more complex configurations.
+
+Several patterns are immediately apparent: first, there's a cluster of configurations in the upper left of the plot, near ~70% correctness and the 1 s threshold for latency. The configurations in these points are predominately Systems A, B, and C paired with Jina-v3 and OpenAI embeddings.
+
+System C in particular exhibits a favorable balance between performance and speed. Across multiple embedding choices, its configurations populate the efficiency frontier (dotted line), showing that query rewriting and relatively light agentic control can improve retrieval performance at low cost. This observation is consistent across different System C configurations.
+
+In contrast, System D ("God Mode") displays markedly higher variance. While some System D configurations nearly reach the efficiency frontier, others suffer severe degradation -- both in latency and accuracy -- resulting in a wide spread in both dimensions. This spread is especially pronounced for smaller or aggressively quantized models, where additional complexity appears to suffer from rather than compensate for their simplicity. 
+
+The dashed line indicates the empirical efficiency frontier, showing that beyond a certain point, increases in system complexity do not reliably translate into improved performance. Notably, System D rarely sits on the frontier. 
+
+Altogether, these results show an overarching finding of the study: that increased complexity does not necessarily translate to increased performance -- and can instead become a liability in certain conditions. 
+
+```{python}
+
+fig_retrieval = px.scatter(
+    df,
+    x="retrieval_recall",
+    y="retrieval_mrr",
+    color="Article_System",
+    symbol="db",
+    size="correctness_score",
+    opacity=0.7,
+    template="plotly_white",
+    color_discrete_map=color_map_final,
+    labels={
+        "retrieval_recall": "Recall (Did we find it?)",
+        "retrieval_mrr": "MRR (Was it at the top?)",
+        "Article_System": "Architecture"
+    }
+)
+
+fig_retrieval.add_annotation(
+    x=1.0, y=1.0,
+    text="<b>Perfect Retrieval",
+    showarrow=True, arrowhead=2,
+    ax=-40, ay=40,
+    bgcolor="rgba(255, 255, 255, 0.8)",
+    bordercolor="black"
+)
+
+fig_retrieval.add_annotation(
+    x=0.9, y=0.1,
+    text="<b>⚠️ No-Go Zone:<br> High Recall, Low MRR",
+    showarrow=False,
+    bgcolor="rgba(255, 255, 255, 0.8)",
+    font=dict(color="orange")
+)
+
+fig_retrieval.add_annotation(
+    x=0.7, y=0.75,
+    text="<b>Systems C and D (Agentic)<br>Dominate Search</b>",
+    showarrow=True, arrowhead=2,
+    ax=-35, ay=-40,
+    bgcolor="rgba(255, 255, 255, 0.8)",
+    bordercolor="black"
+)
+
+fig_retrieval.update_layout(
+    height=600,
+    xaxis=dict(range=[-0.05, 1.05]),
+    yaxis=dict(range=[-0.05, 1.05]),
+    legend=dict(y=0.05, x=0.05, bgcolor="rgba(255,255,255,0.8)"),
+    margin=dict(t=30)
+)
+
+fig_retrieval.show()
+```
+
+::: {.fig-caption}
+**Figure 7**. Retrieval quality comparing recall (did we find it?) versus MRR (was it ranked first?). Systems C and D dominate.
+:::
+
+Figure 7 shows recall versus Mean Reciprocal Rank (MRR). Recall indicates whether the correct document existed in the retrieved set, while MRR indicates the average reciprocal rank of any relevant document in that retrieved set. An analogy would be: imagine you're trying to find a needle in a haystack. Recall is whether that needle exists in the haystack at all, while MRR indicates how close that needle happened to be near the top of the pile. 
+
+The data points in Figure 7 show an almost linear trend. Systems C and D clearly inhabit the "head" of the line and possess the configurations with the highest recall and MRR. It appears as though Systems C and D have complementary advantages and disadvantages: System C has the highest MRR but middling recall, while System D has the highest recall but middling MRR. The performance of each system's retrieval mechanisms are clues that could explain the differences in overall correctness for each RAG architecture, as well as the large variance in System D (see Figure 5). For System C, it seems the good MRR (positioning the relevant documents near the top of the pile) leads to not just good, but remarkably robust performance despite not having the best recall. For System D, the lower MRR seems to introduce errors that are exacerbated by certain LLMs in downstream "agentic" steps, leading to spectacular failures in certain configurations -- notably in those containing Llama 3.1 70B-IQ2. The weaknesses of RAG containing this LLM are explored in detail in later sections.
+
+
+```{python}
+
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+import numpy as np
+df=pd.read_csv('results_table.csv')
+
+
+def clean_and_rename_sys(name):
+    if "SysA" in name: return "System A (Naive)"
+    if "SysC" in name: return "System B (Hybrid)"
+    if "SysD" in name: return "System C (Agentic)"
+    if "SysG" in name: return "System D (God Mode)"
+    return name
+
+df['Article_System'] = df['experiment_name'].apply(clean_and_rename_sys)
+
+fig = go.Figure()
+
+system_colors = {
+    'System A (Naive)': '#3498db',
+    'System B (Hybrid)': '#f39c12',
+    'System C (Agentic)': '#2ecc71',
+    'System D (God Mode)': '#9b59b6'
+}
+
+for system in sorted(df['Article_System'].unique()):
+    system_df = df[df['Article_System'] == system]
+    
+    fig.add_trace(go.Scatter(
+        x=system_df['main_total_tokens'],
+        y=system_df['correctness_score'],
+        mode='markers',
+        name=system,
+        marker=dict(
+            size=system_df['latency_ms']/200,
+            sizemode='area',
+            sizemin=5,
+            color=system_colors.get(system, '#95a5a6'),
+            opacity=0.7,
+            line=dict(width=1, color='white')
+        ),
+        text=[f"LLM: {row['llm']}<br>Embedding: {row['db']}<br>Latency: {row['latency_ms']:.0f}ms" 
+              for _, row in system_df.iterrows()],
+        hovertemplate='<b>%{text}</b><br>Tokens: %{x}<br>Accuracy: %{y:.2%}<extra></extra>'
+    ))
+
+fig.add_annotation(
+    x=2050, y=0.73,
+    text="System C: High accuracy,<br>Low token usage 👍",
+    showarrow=True, arrowhead=2, ax=0, ay=-40,
+    bgcolor="rgba(46, 204, 113, 0.1)",
+    bordercolor="#2ecc71"
+)
+
+fig.add_annotation(
+    x=4800, y=0.25,
+    text="System D with Llama:<br>High cost, low accuracy",
+    showarrow=False, arrowhead=2, ax=20, ay=40,
+    bgcolor="rgba(155, 89, 182, 0.1)",
+    bordercolor="#9b59b6"
+)
+
+
+fig.update_layout(
+    xaxis_title="Token Usage (Cost Proxy)",
+    yaxis_title="Accuracy",
+    height=600,
+    template="plotly_white",
+    legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left",
+        x=1.01,
+        bgcolor="rgba(255,255,255,0.9)",
+        bordercolor="gray",
+        borderwidth=1
+    ),
+    margin=dict(r=150, t=30)
+)
+
+fig.add_hline(y=0.70, line_dash="dash", line_color="gray",
+              annotation_text="70% Ceiling", annotation_position="top left")
+
+fig.show()
+```
+
+::: {.fig-caption}
+**Figure 8**. The economics of RAG showing token usage as a cost proxy versus accuracy. Bubble size indicates latency.
+:::
+
+
+Figure 8 shows the relationship between correctness and token count, with latency indicated by bubble size. 
+
+Across all systems, performance appears to peak near a ~70% accuracy ceiling. System C occupies the most favorable region of the plot, achieving near-peak accuracy with comparatively low token usage and modest latency. This suggests that the right agentic enhancements can potentially improve RAG in the present use case beyond the baseline "naive" system, and not with an unreasonable extra cost.
+
+However, System D appears to be split in performance. Some configurations showed near-peak correctness and among the lowest token use (upper left of the plot). When System D works well, it works REALLY well. Other System D configurations showed the <i>highest</i> token use and the <i>lowest</i> correctness (lower right of the plot). These outlying points reflect systematic failure modes that emerge when complex agentic logic is paired with smaller or aggressively quantized models (vide infra).
+
+Taken together, this figure highlights an important economic implication of RAG system design: architectural complexity alone does not guarantee improved outcomes. In practice, increasing control depth can amplify model weaknesses, resulting in higher costs without corresponding gains in accuracy.
+
+```{python}
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import os
+import json
+
+# --- UPDATE: Point to evals subdirectory ---
+EVALS_DIR = "evals"
+results_files = [i for i in os.listdir(EVALS_DIR) if i.endswith('jsonl') and not i.startswith('gold')]
+all_records = []
+
+for f in results_files:
+    # --- UPDATE: Join path with directory ---
+    full_path = os.path.join(EVALS_DIR, f)
+    with open(full_path, "r", encoding="utf-8", errors="replace") as infile:
+        for line in infile:
+            try:
+                data = json.loads(line)
+                exp_name = data.get('experiment_name', '')
+                if 'SysA' in exp_name: sys_name = 'SysA'
+                elif 'SysC' in exp_name: sys_name = 'SysC'
+                elif 'SysD' in exp_name: sys_name = 'SysD'
+                elif 'SysG' in exp_name: sys_name = 'SysG'
+                else: sys_name = 'Other'
+                
+                all_records.append({
+                    'System': sys_name,
+                    'Question Type': data.get('question_type', 'unknown'),
+                    'Correctness': data.get('correctness_score', 0),
+                    'Latency': data.get('latency_ms', 0),
+                    'QID': data.get('question_id', None)
+                })
+            except:
+                continue
+
+df_qtype = pd.DataFrame(all_records)
+
+# ----------------------------
+# 1) Map raw system names
+# ----------------------------
+SYSTEM_MAP = {
+    "SysA": "A",
+    "SysC": "B",
+    "SysD": "C",
+    "SysG": "D",
+}
+
+df = df_qtype.copy()
+df["System_Article"] = df["System"].map(SYSTEM_MAP)
+
+# Drop rows with missing QID or unmapped system
+df = df[df["QID"].notna() & df["System_Article"].notna()].copy()
+
+# If you have multiple rows per (QID, System) from multiple configs/runs,
+# collapse to a single correctness per question per system.
+df_collapsed = (
+    df.groupby(["QID", "System_Article"], as_index=False)["Correctness"]
+      .mean()
+)
+
+# Pivot to wide: columns A/B/C/D, index QID
+wide = df_collapsed.pivot(index="QID", columns="System_Article", values="Correctness")
+
+# ----------------------------
+# 2) Bootstrap helper
+# ----------------------------
+def bootstrap_ci(data, n_boot=10000, ci=95, seed=42):
+    data = np.asarray(data)
+    if len(data) == 0:
+        return np.nan, np.nan, np.nan
+
+    rng = np.random.default_rng(seed)
+    # Bootstrap means
+    boot_means = np.empty(n_boot, dtype=float)
+    for i in range(n_boot):
+        sample = rng.choice(data, size=len(data), replace=True)
+        boot_means[i] = sample.mean()
+
+    alpha = (100 - ci) / 2
+    lower = np.percentile(boot_means, alpha)
+    upper = np.percentile(boot_means, 100 - alpha)
+    return data.mean(), lower, upper
+
+# ----------------------------
+# 3) Compare C vs others
+# ----------------------------
+target = "C"
+comparators = ["A", "B", "D"]
+
+rows = []
+for comp in comparators:
+    # Keep only QIDs where both systems exist
+    pair = wide[[target, comp]].dropna()
+
+    # Per-question paired delta
+    delta = pair[target] - pair[comp]
+
+    mean_delta, ci_low, ci_high = bootstrap_ci(delta.values)
+
+    rows.append({
+        "Comparison": f"{target} − {comp}",
+        "Paired_Qs": len(delta),
+        "Mean_Delta": mean_delta,
+        "CI_Low": ci_low,
+        "CI_High": ci_high,
+    })
+
+summary = pd.DataFrame(rows)
+
+
+# ----------------------------
+# 4) Plot all comparisons in one figure
+# ----------------------------
+fig = go.Figure()
+
+y_labels = [f"System {r['Comparison']}" for _, r in summary.iterrows()]
+
+fig.add_trace(go.Scatter(
+    x=summary["Mean_Delta"],
+    y=y_labels,
+    mode="markers",
+    marker=dict(size=12, color="black"),
+    error_x=dict(
+        type="data",
+        symmetric=False,
+        array=(summary["CI_High"] - summary["Mean_Delta"]).to_list(),
+        arrayminus=(summary["Mean_Delta"] - summary["CI_Low"]).to_list(),
+        thickness=2,
+        width=8
+    ),
+    hovertemplate=(
+        "<b>%{y}</b><br>" +
+        "Mean Δ: %{x:.4f}<br>" +
+        "<extra></extra>"
+    ),
+    name="Mean Δ correctness"
+))
+
+fig.add_vline(
+    x=0,
+    line_dash="dash",
+    line_color="gray",
+    annotation_text="No difference",
+    annotation_position="top"
+)
+
+fig.update_layout(
+    # title="Per-question correctness difference vs System C<br><sup>95% bootstrap confidence intervals (paired by QID)</sup>",
+    xaxis_title="Δ Correctness (C − comparator)",
+    yaxis_title=None,
+    template="plotly_white",
+    height=320 + 40 * len(comparators),
+    margin=dict(l=60, r=40, t=70, b=40)
+)
+
+fig.show()
+```
+
+::: {.fig-caption}
+**Figure 9**. Paired 95% bootstrap confidence intervals for mean correctness differences: System C is statistically indistinguishable from Systems A and B, while System D trends worse (driven by brittle configurations).
+95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The differences in correctness between System C and Systems A and B are statistically insignficant; however, there is a statistically significant difference between Systems C and D.  
+:::
+
+Is System C the best in terms of correctness? With only 100 questions, there's presently not enough power to distinguish small differences among the top systems. To assess uncertainty, paired, per-question 95% bootstrap confidence intervals were calculated for the mean correctness difference between System C and the others.
+
+System C is not clearly superior to Systems A or B -- their confidence intervals overlap zero, so at the moment, these systems are effectively tied. This raises the question: do moderately agentic routines really improve correctness over strong naive or hybrid baselines, or do they mostly impact cost, latency, and robustness? A larger, more thorough, more expensive benchmark is necessary to answer that question definitively.
+
+Figure 9 <i>does</i> show System C outperforming System D, because their confidence interval doesn't cross zero. However, this is mainly driven by brittle System D configurations -- the “high token, low accuracy” outliers in Figure 8. Added complexity can unintentionally introduce unexpected and spectacular points of failure. In practice, that means any added complexity should be introduced while being cautious and observant of such failure modes.
+
+```{python}
+
+import plotly.express as px
+import pandas as pd
+
+df=pd.read_csv('results_table.csv')
+
+def clean_and_rename_sys(name):
+    if not isinstance(name, str): return str(name)
+    if "SysA" in name: return "System A (Naive)"
+    if "SysC" in name: return "System B (Hybrid)"
+    if "SysD" in name: return "System C (Agentic)"
+    if "SysG" in name: return "System D (God Mode)"
+    return name
+
+if 'experiment_name' in df.columns:
+    df['Article_System'] = df['experiment_name'].apply(clean_and_rename_sys)
+
+gap_df = df.groupby('Article_System')[['correctness_score', 'faithfulness_score']].mean().reset_index()
+
+gap_melted = gap_df.melt(id_vars='Article_System', 
+                         value_vars=['correctness_score', 'faithfulness_score'],
+                         var_name='Metric', value_name='Score')
+
+gap_melted['Metric'] = gap_melted['Metric'].replace({
+    'correctness_score': 'Correctness (Factuality)',
+    'faithfulness_score': 'Faithfulness (Instruction Following)'
+})
+
+fig_gap = px.bar(
+    gap_melted,
+    x="Article_System",
+    y="Score",
+    color="Metric",
+    barmode="group",
+    template="plotly_white",
+    color_discrete_map={
+        "Correctness (Factuality)": "#2c3e50",
+        "Faithfulness (Instruction Following)": "#18bc9c"
+    },
+    text_auto='.2f'
+)
+
+fig_gap.update_layout(
+    yaxis=dict(range=[0, 1.05], title="Score (0-1)"),
+    xaxis_title=None,
+    legend=dict(
+        orientation="h", 
+        yanchor="bottom", y=1.02, 
+        xanchor="right", x=1
+    ),
+    width=800, height=500,
+    margin=dict(t=30)
+)
+
+fig_gap.show()
+```
+
+::: {.fig-caption}
+**Figure 10**. The hallucination gap comparing correctness (factuality) versus faithfulness (instruction following) by system.
+:::
+
+Figure 10 compares the average correctness (factual accuracy) and faithfulness (instruction following) in each RAG architecture. The stark variation in correctness has already been discussed, but it contrasts with faithfulness, which is relatively high and constant throughout each of the architectures. 
+
+Because correctness and faithfulness don't appear to <i>strongly</i> correlate, any failures in the RAG systems studied here are not due to classical hallucinations. Even in configurations where accuracy degrades, particularly in System D, instructions are still followed faithfully. In practice, this means that any degradation in accuracy is not due to unfaithful behavior, but faithfully executed mistakes. Any errors in accuracy likely arise early in the RAG chain and then are carried along in the pipeline. This observation reinforces a central theme of the study: improving RAG performance requires not only better language models, but also careful attention to the reliability of the control logic that pushes things along.
+
+```{python}
+
+import plotly.graph_objects as go
+import pandas as pd
+
+df = pd.read_csv('results_table.csv')
+
+naive_df = df[df['sys'] == 'SysA']
+
+recall_5 = naive_df['recall_at_5'].mean()
+recall_10 = naive_df['recall_at_10'].mean()
+recall_20 = naive_df['retrieval_recall'].mean()
+
+k_values = [5, 10, 20]
+recall_scores = [recall_5, recall_10, recall_20]
+token_costs = [5 * 250, 10 * 250, 20 * 250] 
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=k_values, y=recall_scores,
+    name="Recall (Accuracy Ceiling)",
+    mode='lines+markers',
+    line=dict(color='#2ecc71', width=4),
+    marker=dict(size=12),
+    yaxis='y1'
+))
+
+fig.add_trace(go.Scatter(
+    x=k_values, y=token_costs,
+    name="Token Cost (Linear Growth)",
+    mode='lines+markers',
+    line=dict(color='#e74c3c', width=3, dash='dot'),
+    marker=dict(size=10, symbol='square'),
+    yaxis='y2'
+))
+
+fig.add_annotation(
+    x=20, y=recall_20,
+    text="<b>Diminishing Returns</b><br>4x Cost for <1% Gain",
+    showarrow=True, arrowhead=2, ax=0, ay=40,
+    bgcolor="rgba(255, 255, 255, 0.8)", bordercolor="orange"
+)
+
+fig.update_layout(
+    xaxis=dict(title="Chunks Retrieved (k)", tickvals=[5, 10, 20]),
+    yaxis=dict(
+        title="Recall Score", 
+        title_font=dict(color="#2ecc71"),
+        tickfont=dict(color="#2ecc71"),
+        range=[0.6, 0.75]
+    ),
+    yaxis2=dict(
+        title="Est. Tokens per Query",
+        title_font=dict(color="#e74c3c"),
+        tickfont=dict(color="#e74c3c"),
+        overlaying='y',
+        side='right',
+        range=[0, 6000]
+    ),
+    template="plotly_white",
+    height=500,
+    legend=dict(x=0.05, y=0.95, bgcolor="rgba(255,255,255,0.8)"),
+    margin=dict(t=30)
+)
+
+fig.show()
+```
+
+::: {.fig-caption}
+**Figure 11**. The diminishing returns of increasing context size (k) in naive RAG—costs grow linearly while recall saturates.
+:::
+
+Figure 11 examines the effect of k -- the number of documents retrieved -- on recall and token usage in the naive RAG baseline (System A). This analysis was motivated by an observation that token use by System A is relatively high among the different RAG systems in this study (see Figure 8). This raised the possibility that the value chosen for k (20) was a little too high. Figure 11 shows that recall rapidly improves up to about k=5 to 10, but only modestly improves beyond that, while token use continues to grow linearly. While similar performance in System A in the experiments of this study would have probably been observed with a lower k and incurred smaller token costs, this highlight a general pattern that recurs through this study: retrieval recall often saturates well before system costs do.
+
+
+```{python}
+import os
+import json
+import pandas as pd
+import plotly.express as px
+
+# Raw -> paper naming
+SYSTEM_MAP = {
+    "SysA": "A",
+    "SysC": "B",
+    "SysD": "C",
+    "SysG": "D",  # God Mode
+}
+
+# --- UPDATE: Point to evals subdirectory ---
+EVALS_DIR = "evals"
+results_files = [
+    f for f in os.listdir(EVALS_DIR)
+    if f.startswith("evaluation_results") and f.endswith(".jsonl") and not f.startswith("gold")
+]
+
+all_records = []
+
+def infer_raw_system(exp_name: str) -> str:
+    # Check longer/more specific tokens first
+    for raw in ["SysG", "SysD", "SysC", "SysA"]:
+        if raw in exp_name:
+            return raw
+    return "Other"
+
+for f in results_files:
+    # --- UPDATE: Join path with directory ---
+    full_path = os.path.join(EVALS_DIR, f)
+    with open(full_path, "r", encoding="utf-8",errors="replace") as infile:
+        for line in infile:
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+
+            exp_name = data.get("experiment_name", "")
+            raw_sys = infer_raw_system(exp_name)
+            paper_sys = SYSTEM_MAP.get(raw_sys, raw_sys)
+
+            all_records.append({
+                "System": paper_sys,
+                "Question Type": data.get("question_type", "unknown"),
+                "Correctness": data.get("correctness_score", 0),
+                "Latency": data.get("latency_ms", 0),
+            })
+
+df_qtype = pd.DataFrame(all_records)
+
+summary_df = (
+    df_qtype
+    .groupby(["System", "Question Type"], as_index=False)["Correctness"]
+    .mean()
+)
+
+fig = px.bar(
+    summary_df,
+    x="Question Type",
+    y="Correctness",
+    color="System",
+    barmode="group",
+    template="plotly_white",
+    color_discrete_map={
+        "A": "#4C72B0",
+        "B": "#DD8452",
+        "C": "#55A868",
+        "D": "#C44E52",
+    }
+)
+
+fig.update_layout(
+    yaxis=dict(range=[0, 1.05], title="Avg Correctness Score"),
+    xaxis_title="Question Category",
+    legend_title="Sys",
+    height=500,
+    margin=dict(t=30),
+)
+
+fig.show()
+
+
+```
+
+::: {.fig-caption}
+**Figure 12**. System competency profile showing correctness by question type. Complex systems excel at filter and multi-hop categories.
+:::
+
+It can be quickly observed that System C is the most robust performer across nearly all question types. Particularly, it clearly exceeds all other systems in descriptive, factual, contextual, and unanswerable categories. It's also significantly better than System D, despite System D's increased complexity. This suggests possible failure modes resulting from interaction between System D's architectural complexity and the robustness of other system components. 
+
+Figure 12 also shows that only the agentic systems (Systems C and D) are capable of answering the "contextual" questions. This is because only these systems contain the a fundamental "agentic" function of rewriting user queries to fit the conversation history to create a query that works better for semantic retrieval. E.g., a vague question of "what year was it released?" gets transformed to "what year was the second Star Wars movie released?", etc.
+
+Finally, Figure 12 shows that filter and multi-hop questions are only solved reliably by Systems A (Naive) and D (God Mode). In the naive system, these questions succeed mainly due to "context stuffing" -- the large k used for this system (20) increased the chance of finding the correct document. In contrast, System D attempts to solve these questions through explicit decomposition and reranking -- an approach that is theoretically more principled, but, as shown below, can be a liability in configurations with spotty model robustness.
+
+Altogether, these results motivate a closer examination of System D's failures in cases where the simpler System C succeeds. The following case studies analyze certain “God Mode” failures to illustrate how aspects of its complex architecture interact to undermine otherwise correct retrieval.
+
+::: {.callout-important icon=false}
+## When and why did "God Mode" not work?
+
+Why did the complex System D fail where the simpler System C succeeded? Failure analysis showed that the semantic reranker often discarded "boring" but correct metadata in favor of "rich" but irrelevant plot summaries, or simply overwhelmed the model with noise.
+
+| Question | System C (Agentic) | System D (GodMode) | What happened? |
+|:---|:---|:---|:---|
+| **"What is the popularity score of Armageddon (1998)?"** | **"7.838"** (Correct) | *"The popularity score of Armageddon (1998) is 6.4/10 [Doc 20603]."* (Incorrect) | **Metric confusion under noise:** God Mode returned a rating-style number for a popularity field. It grabbed a number from the metadata that looked plausible but wasn't the correct one. |
+| **"How much gold was Brink's-Mat holding?"** | **"£26 million"** (Correct) | *"The information is not found in the provided documents."* (Incorrect) | **Retrieval miss / over-filtering:** God Mode simply fails to surface the relevant evidence (its retrieval metrics for this item drop to zero). Generation failed because retrieval failed. |
+| **"Which movie is about two rival gangs in Munich?"** | **"Nacht der Wölfe"** (Correct) | *"I cannot find the answer..." (Incorrect) | **Wrong retrieval target:** This looks like a straight-up miss -- God Mode doesn’t retrieve the needed doc and instead finds unrelated ones. |
+
+:::
+
+
+```{python}
+import json
+from pathlib import Path
+import numpy as np
+import plotly.graph_objects as go
+
+
+def mean_correctness(jsonl_path: str) -> float:
+    vals = []
+    with open(jsonl_path, "r", encoding="utf-8",errors="replace") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            d = json.loads(line)
+            v = d.get("correctness_score")
+            if v is not None:
+                vals.append(v)
+    return float(np.mean(vals))
+
+
+# --- UPDATE: Added 'evals/' prefix to all paths ---
+qwen_4bit = "evals/evaluation_results_qwen2.5_32b_SysG_v4_Reranked_FIXED_1766524393.jsonl"
+qwen_2bit = "evals/evaluation_results_qwen2.5_32b-instruct-q2_K_SysG_v4_Reranked_FIXED_1766368890.jsonl"
+llama_4bit = "evals/evaluation_results_llama3.1_70b_SysG_v4_Reranked_FIXED_1766501850.jsonl"
+llama_2bit = "evals/evaluation_results_llama3.1-70b-iq2_xs_SysG_v4_Reranked_FIXED_1766415472.jsonl"
+
+qwen_y = [mean_correctness(qwen_4bit), mean_correctness(qwen_2bit)]
+llama_y = [mean_correctness(llama_4bit), mean_correctness(llama_2bit)]
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=['4-Bit', '2-Bit'],
+    y=qwen_y,
+    mode='lines+markers+text',
+    name='Qwen 2.5 32B',
+    line=dict(color='#00cc96', width=4),
+    marker=dict(size=12),
+    text=[f"{v*100:.1f}%" for v in qwen_y],
+    textposition="top right"
+))
+
+fig.add_trace(go.Scatter(
+    x=['4-Bit', '2-Bit'],
+    y=llama_y,
+    mode='lines+markers+text',
+    name='Llama 3.1 70B',
+    line=dict(color='#ef553b', width=4, dash='dash'),
+    marker=dict(size=12, symbol='x'),
+    text=[f"{v*100:.1f}%" for v in llama_y],
+    textposition="bottom center"
+))
+
+fig.update_layout(
+    yaxis_title="Correctness Score",
+    yaxis=dict(range=[0.2, 0.75], tickformat=".0%"),
+    template='plotly_white',
+    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    margin=dict(t=30, b=40),
+    height=500
+)
+
+fig.show()
+```
+
+
+::: {.fig-caption}
+**Figure 13**. The fragility threshold showing impact of quantization on accuracy. Qwen 2.5 maintains performance while Llama 3.1 degrades rapidly.
+:::
+
+```{python}
+import json
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import plotly.express as px
+
+
+def load_jsonl(path: str) -> pd.DataFrame:
+    rows = []
+    with open(path, "r", encoding="utf-8",errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    df = pd.DataFrame(rows)
+    # Normalize types just in case
+    df["correctness_score"] = pd.to_numeric(df.get("correctness_score"), errors="coerce")
+    df["question_type"] = df.get("question_type").astype(str)
+    return df
+
+
+def mean_correctness_by_qtype(path: str) -> pd.Series:
+    df = load_jsonl(path)
+    # drop rows where correctness missing (should be rare, but safe)
+    df = df[df["correctness_score"].notna()].copy()
+    return df.groupby("question_type")["correctness_score"].mean()
+
+
+# --- UPDATE: Added 'evals/' prefix to all paths ---
+qwen_4bit = "evals/evaluation_results_qwen2.5_32b_SysG_v4_Reranked_FIXED_1766524393.jsonl"
+qwen_2bit = "evals/evaluation_results_qwen2.5_32b-instruct-q2_K_SysG_v4_Reranked_FIXED_1766368890.jsonl"
+llama_4bit = "evals/evaluation_results_llama3.1_70b_SysG_v4_Reranked_FIXED_1766501850.jsonl"
+llama_2bit = "evals/evaluation_results_llama3.1-70b-iq2_xs_SysG_v4_Reranked_FIXED_1766415472.jsonl"
+
+# Compute mean correctness by question type
+qwen_4 = mean_correctness_by_qtype(qwen_4bit)
+qwen_2 = mean_correctness_by_qtype(qwen_2bit)
+llama_4 = mean_correctness_by_qtype(llama_4bit)
+llama_2 = mean_correctness_by_qtype(llama_2bit)
+
+# Union of question types present across files
+qtypes = sorted(set(qwen_4.index) | set(qwen_2.index) | set(llama_4.index) | set(llama_2.index))
+
+# Optional: enforce a nicer order if you want it to match the article
+preferred_order = ["descriptive", "factual", "unanswerable", "contextual", "filter", "multi_hop"]
+if set(preferred_order).issubset(set(qtypes)):
+    qtypes = preferred_order
+
+# Build degradation table: (2-bit - 4-bit) * 100 (percentage points)
+rows = []
+for qt in qtypes:
+    rows.append({
+        "Question Type": qt.replace("_", "-").title(),  # multi_hop -> Multi-Hop
+        "Llama 70B": (llama_2.get(qt, np.nan) - llama_4.get(qt, np.nan)) * 100.0,
+        "Qwen 32B":  (qwen_2.get(qt, np.nan)  - qwen_4.get(qt, np.nan))  * 100.0,
+    })
+
+df_deg = pd.DataFrame(rows)
+
+# Melt for plotly
+df_melted = df_deg.melt(id_vars="Question Type", var_name="Model", value_name="Degradation")
+
+fig = px.bar(
+    df_melted,
+    x="Question Type",
+    y="Degradation",
+    color="Model",
+    barmode="group",
+    color_discrete_map={"Llama 70B": "#C44E52", "Qwen 32B": "#55A868"},
+    template="plotly_white",
+)
+
+fig.add_hline(y=0, line_dash="dash", line_color="gray")
+
+# Optional: automatically annotate the two biggest Llama drops (most negative pp)
+llama_rows = df_deg[["Question Type", "Llama 70B"]].dropna().sort_values("Llama 70B").head(2)
+for _, r in llama_rows.iterrows():
+    fig.add_annotation(
+        x=r["Question Type"],
+        y=float(r["Llama 70B"]),
+        text=f"{r['Llama 70B']:+.0f}pp",
+        showarrow=False,
+        font=dict(color="red", size=12),
+        yshift=-10,
+    )
+
+fig.update_layout(
+    yaxis_title="Performance Change (pp)",
+    height=500,
+    margin=dict(t=30),
+)
+
+fig.show()
+
+```
+
+::: {.fig-caption}
+**Figure 14**. Quantization vulnerability by question type. Llama catastrophically fails on descriptive and unanswerable questions.
+:::
+
+
+
+
+The most remarkably underperforming configuration across all experiments were those with System D paired with Llama 3.1 70B-IQ2. As discussed earlier, the degradation in System D using this LLM was hypothesized mainly to arise from the aggressive 2-bit quantization, which is generally understood to introduce calibration error and reduced numerical precision in attention and feed-forward layers of the transformer model. However, is that the whole explanation?
+
+To better isolate the effect of reduced quantization on the degradation of System D, a limited follow-up experiment was conducted using the 4-bit quantized variant of Llama 3.1 70B (the "default", and the version actually authored by Meta), together with System D and openai-large embeddings, to compare with the 2-bit analog configuration. My local hardware couldn't hold this system entirely in VRAM, so CPU offloading was required and inference speeds went through the floor; but the point of this experiment wasn't speed, it was correctness. 
+
+Moving from 2-bit to 4-bit quantization <i>did</i> result in an improvement in correctness, but not as much as expected. See Figure 13. Because this would've been the largest LLM in the study, I was expecting correctness to be at or exceeding 70%, which was the apparent ceiling across all experiments in the study. However, it was 47.7% -- only a modest improvement from the performance at 2-bit (40.8%). This difference in performance was compared with the difference between the 4-bit and 2-bit versions of Qwen 2.5 32B, which was virtually non-existent (both at ~63%)  
+
+The difference in performance degradation between Llama 3.1 70B and Qwen 2.5 32B was striking. Why is there such a big difference? The different bit-widths certainly contributed to the performance differential in both cases, but this phenomenon alone was insufficient to explain the large performance drop for Llama 3.1 70B in System D. 
+
+The difference in differences cannot be attributed solely to quantization. Instead, it is consistent with an interaction between model architecture, post-training quantization behavior, and the demands imposed by System D itself, which introduces several layers of control logic -- including iterative retrieval, semantic reranking, and document grading -- that amplify small errors in representation or calibration. In such settings, minor degradation at any single step can cascade into disproportionately large downstream failures.
+
+Notably, this effect appears to be architecture-sensitive. Despite its smaller parameter count, Qwen 2.5 32B exhibited substantially greater robustness under increased system complexity and aggressive quantization. This suggests that raw model size alone is not a sufficient predictor of stability in agentic retrieval settings. Instead, architectural characteristics -- such as attention behavior, token salience modeling, or sensitivity to distributional shift -- may play a decisive role.
+
+It is important to emphasize that Llama 3.1 70B-IQ2 is a community-quantized variant rather than a first-party Meta release. As such, these results should not be interpreted as definitive statements about the intrinsic capabilities of the base Llama 3.1 architecture. Rather, they highlight how quantization choices and architectural sensitivity can interact with system-level design decisions in non-obvious ways.
+
+Taken together, these findings suggest the existence of a fragility threshold in certain large models: beyond a particular level of system complexity, additional control mechanisms may no longer compensate for representational noise, and may instead exacerbate it. This has practical implications for practitioners seeking to deploy highly agentic RAG systems on constrained hardware. In such cases, smaller or more quantization-tolerant models may outperform larger counterparts, not despite their size, but because of their greater stability under iterative control.
+
+# Conclusions
+
+If I were to design a production system for this database and these types of questions, these would be my recommendations: 
+
+- **For Startups (budget-conscious):**
+  - **System:** C (Agentic)
+  - **LLM:** Gemini Flash
+  - **Embedding:** Jina-v3
+  - **Cost:** ~$0.0005/query
+  - **Accuracy:** 70%
+
+- **For Enterprise (reliability-focused):**
+  - **System:** C (Agentic)
+  - **LLM:** GPT-4o
+  - **Embedding:** OpenAI-large
+  - **Cost:** ~$0.005/query
+  - **Accuracy:** 70%
+
+- **For Local Deployment:**
+  - **System:** C (Agentic)
+  - **LLM:** Qwen 2.5 32B
+  - **Embedding:** Jina-v3
+  - **Cost:** $0 (after hardware)
+  - **Accuracy:** 68%
+
+- **What to Avoid:**
+  - System D (God Mode) — fragile and expensive
+  - BGE-M3 embeddings — consistently underperform
+  - 2-bit quantization with any complex architecture
+
+
+96 RAG configurations were assembled and tested using questions that could be answered with TV and movie data. The RAG architectures ranged from simple "naive" RAG to agentic systems that included reranking, iterative retrieval, and self-evaluation. The aim was to evaluate whether the complexity in RAG systems would correlate with performance. The tested configurations showed a ~70% peak correctness that was obtained most consistently by the agentic System C. On the other hand, the "God Mode" agentic System D exhibited high variance in performance -- it performed very well in some systems, but degraded sharply in others -- particularly with the aggressively quantized Llama 3.1 70B-IQ2.
+
+A lackluster performance by 2-bit models like Llama 3.1 70B-IQ2 is perhaps unsurprising. However, when investigating the effects of going from 4-bit to 2-bit, it was shown that the degradation for Llama 3.1 70B was markedly worse than for Qwen 2.5 32B. Therefore, performance appears to be shaped by a complex interplay between model architecture, quantization, and an error-amplifying effect of the complex System D pipeline.
+
+It should be noted that most aggressively quantized model -- Llama 3.1 70B-IQ2 -- is a community-produced release, rather than an official Meta release. Therefore, these results should not be interpreted as definitive judgments on the Llama architecture itself. Moreover, newer open-source models (e.g., Llama 3.3) were released after the completion of this study and not evaluated here. 
+
+Altogether, these findings suggest that “more agentic” is not necessarily better. Moderately agentic designs such as System C appear to strike a favorable balance between retrieval quality, robustness, and cost. The accuracy/latency tradeoffs are summarized in Figure 15 for all systems. More complex pipelines may still be valuable in specific settings, but only in configurations with LLMs and embeddings of sufficient robustness. 
+
+```{python}
+
+import os
+import pandas as pd
+import json
+import plotly.express as px
+
+# --- UPDATE: Point to evals subdirectory ---
+EVALS_DIR = "evals"
+files = [f for f in os.listdir(EVALS_DIR) if f.endswith('.jsonl')]
+data = []
+for file in files:
+    # --- UPDATE: Join path with directory ---
+    full_path = os.path.join(EVALS_DIR, file)
+    with open(full_path, 'r',encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                data.append(json.loads(line))
+            except:
+                continue
+df = pd.DataFrame(data)
+
+def clean_sys_name(name):
+    if not isinstance(name, str): return str(name)
+    if "SysA" in name: return "System A (Naive)"
+    if "SysC" in name: return "System B (Hybrid)"
+    if "SysD" in name: return "System C (Agentic)"
+    if "SysG" in name: return "System D (God Mode)"
+    return name
+
+if not df.empty and 'experiment_name' in df.columns:
+    df['System'] = df['experiment_name'].apply(clean_sys_name)
+
+    agg_df = df.groupby('System').agg({
+        'correctness_score': 'mean',
+        'faithfulness_score': 'mean',
+        'latency_ms': 'mean',
+        'main_total_tokens': 'mean'
+    }).reset_index()
+
+    reasoning_df = df[df['question_type'].isin(['filter', 'multi_hop', 'contextual'])]
+    if not reasoning_df.empty:
+        r_score = reasoning_df.groupby('System')['correctness_score'].mean().reset_index()
+        agg_df = pd.merge(agg_df, r_score.rename(columns={'correctness_score': 'reasoning_score'}), on='System')
+    else:
+        agg_df['reasoning_score'] = agg_df['correctness_score']
+
+    agg_df['Intelligence'] = ((agg_df['correctness_score'] + agg_df['reasoning_score']) / 2) * 100
+    
+    max_lat = agg_df['latency_ms'].max()
+    max_tok = agg_df['main_total_tokens'].max()
+    agg_df['Efficiency'] = (((1 - agg_df['latency_ms']/max_lat) + (1 - agg_df['main_total_tokens']/max_tok)) / 2) * 100
+
+    def get_size(sys_name):
+        if "System C" in sys_name: return 45
+        return 30
+    
+    agg_df['MarkerSize'] = agg_df['System'].apply(get_size)
+
+    fig_quad = px.scatter(
+        agg_df,
+        x="Efficiency",
+        y="Intelligence",
+        color="System",
+        size="MarkerSize",
+        text="System",
+        template="plotly_white",
+        color_discrete_map={
+            "System A (Naive)": "#4C72B0",
+            "System B (Hybrid)": "#DD8452",
+            "System C (Agentic)": "#55A868",
+            "System D (God Mode)": "#C44E52"
+        }
+    )
+    
+    mean_int = agg_df['Intelligence'].mean()
+    mean_eff = agg_df['Efficiency'].mean()
+    fig_quad.add_hline(y=mean_int, line_width=1, line_dash="dash", line_color="grey")
+    fig_quad.add_vline(x=mean_eff, line_width=1, line_dash="dash", line_color="grey")
+    
+    x_min, x_max = agg_df['Efficiency'].min(), agg_df['Efficiency'].max()
+    y_min, y_max = agg_df['Intelligence'].min(), agg_df['Intelligence'].max()
+    
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    
+    fig_quad.add_annotation(x=(x_max-x_max*0.093), y=(y_max-0.014*y_max), text="<b>The Ideal State</b>", showarrow=False, font=dict(color="green", size=12))
+    fig_quad.add_annotation(x=x_min, y=y_min, text="<b>Low Value</b>", showarrow=False, font=dict(color="red", size=12))
+    fig_quad.add_annotation(x=(x_max-x_max*0.0093), y=(y_min-0.012*y_min), text="<b>Fast but Dumb</b>", showarrow=False, font=dict(size=12))
+    fig_quad.add_annotation(x=x_min, y=y_max, text="<b>Smart but Slow</b>", showarrow=False, font=dict(size=12))
+
+    fig_quad.update_traces(textposition='top center')
+    fig_quad.update_layout(
+        xaxis_title="Efficiency Score (Speed + Low Cost)",
+        yaxis_title="Intelligence Score (Reasoning + Accuracy)",
+        showlegend=False,
+        height=600,
+        xaxis=dict(range=[x_min - x_range*0.2, x_max + x_range*0.2]),
+        yaxis=dict(range=[y_min - y_range*0.2, y_max + y_range*0.2]),
+        margin=dict(t=30)
+    )
+
+    fig_quad.show()
+else:
+    print("DataFrame empty or missing columns.")
+```
+
+::: {.fig-caption}
+**Figure 15**. The RAG architecture quadrant plotting intelligence versus efficiency. System C (Agentic) achieves the optimal position.
+:::
