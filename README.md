@@ -148,6 +148,8 @@ This will create the four databases in scripts/db using source_data.ndjson:
 python build_child_parent_db.py
 ```
 
+The databases are about **16 GB in total.**
+
 ## Running the Full Benchmark
 
 To reproduce the entire suite of 96 experiments, you can execute the provided batch script:
