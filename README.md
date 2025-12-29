@@ -39,10 +39,14 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 
 ## Systems evaluated (high level)
 
-- **System A (Naive):** vector search (k=20) → stuff context → generate  
-- **System B (Hybrid):** vector + metadata filtering + specialized handling  
-- **System C (Agentic):** query rewriting + doc grading + adaptive retrieval  
-- **System D (God Mode):** wide retrieval (k=100) + cross-encoder reranking → top-k → generate
+> **⚠️ Note on Naming:** The scripts and raw log files use internal codenames (`SysA`, `SysC`, `SysD`, `SysG`). The correspondence to the article's nomenclature is as follows:
+
+| Article Name | Code/Log Name | Description |
+| :--- | :--- | :--- |
+| **System A** | `SysA` | **Naive RAG:** Vector search (k=20) → stuff context → generate |
+| **System B** | `SysC` | **Hybrid:** Vector + metadata filtering + specialized handling |
+| **System C** | `SysD` | **Agentic:** Query rewriting + doc grading + adaptive retrieval |
+| **System D** | `SysG` | **"God Mode":** Wide retrieval (k=100) + cross-encoder reranking → top-k → generate |
 
 Full diagrams + details: see the article.
 
@@ -110,7 +114,7 @@ Scripts are provided to do these steps.
 Obtain an API key from tmdb.org and run:
 
 ```bash
-python create_source_data.py --api_key 'YOUR_KEY_HERE'
+python setup/create_source_data.py --api_key 'YOUR_KEY_HERE'
 ```
 
 This will create source_data.ndjson. This process requires tmdb_ids_combined.csv, which contains the databases's movie/TV IDs. This process will take several hours -- it took me ~3 hours during a test run.
@@ -118,7 +122,7 @@ This will create source_data.ndjson. This process requires tmdb_ids_combined.csv
 ### 2) Create gold_set.jsonl
 
 This will create a 'gold_set.jsonl' for the evaluation harness that contains gold answers that are current for the time the data was extracted.
-This step needs to be done because some values (e.g. ratings and popularity) drift over time.
+This step needs to be done because some values (e.g. ratings and popularity) drift on tmdb.org over time.
 
 For example, the answers for these questions were different at the time the experiments were actually performed and when the data was re-extracted for a test run:
 
@@ -131,27 +135,24 @@ Q_097 | How many votes did "My Dog Skip" receive? | 279 | 284
 The gold_set.json creation step depends on gold_set_template.jsonl and source_data.ndjson. It also creates a drift_report.csv that shows the answers that have changed.
 
 ```bash
-python gold_set_update.py
+python setup/gold_set_update.py
 ```
+
+**Important:** Move the generated source_data.ndjson and gold_set.jsonl files from the setup directory to the scripts directory.
 
 ### 3) Create the vector databases
 
-This will create the four databases in the db subdirectory using source_data.ndjson:
+This will create the four databases in scripts/db using source_data.ndjson:
 
 ```bash
-python build_child_parent_db.py
+python scripts/build_child_parent_db.py
 ```
 
-**Important:**  Move the generated db folder to the scripts/ directory so that run_baseline.py and run_godmode.py can find it. Those scripts look for the databases in their db subdirectory.
-
-```bash
-# Linux/Mac
-mv setup/db scripts/
-```
+The databases are about **16 GB in total.**
 
 ## Running the Full Benchmark
 
-To reproduce the entire suite of 96 experiments, you can execute the provided batch script:
+To reproduce the entire suite of 96 experiments, you can execute the provided batch script in scripts/:
 ```bash
 run_all_experiments.bat
 ```
