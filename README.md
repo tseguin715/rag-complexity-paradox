@@ -134,19 +134,14 @@ The gold_set.json creation step depends on gold_set_template.jsonl and source_da
 python gold_set_update.py
 ```
 
+**Important:** Move the source_data.ndjson and gold_set.jsonl files from the setup directory to the scripts directory.
+
 ### 3) Create the vector databases
 
 This will create the four databases in the db subdirectory using source_data.ndjson:
 
 ```bash
 python build_child_parent_db.py
-```
-
-**Important:**  Move the generated db folder to the scripts/ directory so that run_baseline.py and run_godmode.py can find it. Those scripts look for the databases in their db subdirectory.
-
-```bash
-# Linux/Mac
-mv setup/db scripts/
 ```
 
 ## Running the Full Benchmark
