@@ -39,10 +39,14 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 
 ## Systems evaluated (high level)
 
-- **System A (Naive):** vector search (k=20) → stuff context → generate  
-- **System B (Hybrid):** vector + metadata filtering + specialized handling  
-- **System C (Agentic):** query rewriting + doc grading + adaptive retrieval  
-- **System D (God Mode):** wide retrieval (k=100) + cross-encoder reranking → top-k → generate
+> **⚠️ Note on Naming:** The scripts and raw log files use internal codenames (`SysA`, `SysC`, `SysD`, `SysG`). The correspondence to the article's nomenclature is as follows:
+
+| Article Name | Code/Log Name | Description |
+| :--- | :--- | :--- |
+| **System A** | `SysA` | **Naive RAG:** Vector search (k=20) → stuff context → generate |
+| **System B** | `SysC` | **Hybrid:** Vector + metadata filtering + specialized handling |
+| **System C** | `SysD` | **Agentic:** Query rewriting + doc grading + adaptive retrieval |
+| **System D** | `SysG` | **"God Mode":** Wide retrieval (k=100) + cross-encoder reranking → top-k → generate |
 
 Full diagrams + details: see the article.
 
