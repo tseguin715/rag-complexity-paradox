@@ -142,7 +142,7 @@ This will create the four databases in the db subdirectory using source_data.ndj
 python build_child_parent_db.py
 ```
 
-**Important:**  Move the generated db folder to the scripts/ directory so the benchmark runners can find it:
+**Important:**  Move the generated db folder to the scripts/ directory so that run_baseline.py and run_godmode.py can find it. Those scripts look for the databases in their db subdirectory.
 
 ```bash
 # Linux/Mac
