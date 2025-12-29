@@ -134,7 +134,7 @@ The gold_set.json creation step depends on gold_set_template.jsonl and source_da
 python gold_set_update.py
 ```
 
-**Important:** Move the source_data.ndjson and gold_set.jsonl files from the setup directory to the scripts directory.
+**Important:** Move the source_data.ndjson and gold_set.jsonl files from the setup directory to the scripts directory after they are generated.
 
 ### 3) Create the vector databases
 
