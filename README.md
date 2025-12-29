@@ -114,7 +114,15 @@ This will create source_data.ndjson. This process requires tmdb_ids_combined.csv
 ### 2) Create gold_set.jsonl
 
 This will create a 'gold_set.jsonl' for the evaluation harness that contains gold answers that are current for the time the data was extracted.
-This step needs to be done because some values (e.g. ratings and popularity) drift over time. For example, the answers for these questions were different at the time the experiments were actually performed and when the data was re-extracted for a test run:
+This step needs to be done because some values (e.g. ratings and popularity) drift over time.
+
+For example, the answers for these questions were different at the time the experiments were actually performed and when the data was re-extracted for a test run:
+
+question_id | question | 2025.11.12 | 2025.12.27
+-------- | -------- | -------- | -------- 
+Q_035 | What is the rating of the movie Forrest Gump (NOT "Through the Eyes of Forrest Gump")? | 8.466 | 8.5
+Q_097 | How many votes did "My Dog Skip" receive? | 279 | 284
+
 
 The gold_set.json creation step depends on gold_set_template.jsonl and source_data.ndjson. It also creates a drift_report.csv that shows the answers that have changed.
 
