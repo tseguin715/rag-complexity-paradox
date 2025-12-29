@@ -1,7 +1,7 @@
 # The RAG Complexity Paradox  
 **Why 20× more spend didn’t beat a ~70% ceiling**
 
-This repo contains the full code + outputs for an empirical RAG evaluation: **96 configurations** across **4 architectures**, **6 LLMs**, and **4 embedding models** on a **100-question TMDB QA benchmark**.
+This repo contains the full code + outputs for an empirical RAG evaluation: **96 configurations** across **4 architectures**, **6 LLMs**, and **4 embedding models** on a **100-question The Movie Database (TMDB) QA benchmark**.
 
 **Headline results**
 - **Complexity ≠ accuracy:** Top configs cluster around ~70% correctness; no consistent gain from "God Mode" (highest complexity architecture).
