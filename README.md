@@ -142,6 +142,13 @@ This will create the four databases in the db subdirectory using source_data.ndj
 python build_child_parent_db.py
 ```
 
+**Important:**  Move the generated db folder to the scripts/ directory so the benchmark runners can find it:
+
+```bash
+# Linux/Mac
+mv setup/db scripts/
+```
+
 ## Running the Full Benchmark
 
 To reproduce the entire suite of 96 experiments, you can execute the provided batch script:
