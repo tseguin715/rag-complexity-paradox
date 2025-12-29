@@ -151,7 +151,7 @@ run_all_experiments.bat
 
 Note: This may take several hours/days depending on your hardware and API limits.
 
-Running Specific Configurations You can also run individual experiments using the CLI arguments:
+You can also run individual experiments using the CLI arguments:
 ```bash
 python scripts/run_baselines.py --llm gpt4o --db openai_large
 ```
