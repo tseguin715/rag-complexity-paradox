@@ -4,7 +4,7 @@ title: "The RAG Complexity Paradox"
 subtitle: "Why 20× more spend didn’t beat a ~70% ceiling"
 author:
   - name: Trevor Seguin
-date: 2025.12.30
+date: 2025.12.31
 date-format: "MMMM D, YYYY"
 description: "After evaluating 96 RAG configurations across 4 architectures, 6 LLMs, and 4 embedding models on a 100-question TMDB benchmark, there seems to be no reliable improvement from highly complex agentic systems. The top configurations clustered around ~70% correctness (the practical ceiling for the testing conditions), and several very different configurations tie for best. Moderate agentic control (System C: query rewriting + doc grading) consistently lands on the efficiency frontier of latency and accuracy (e.g. ~70% at 1s with GPT-4o + OpenAI-large embeddings). The most complex architecture -- System D God Mode -- can achieve high performance in correctness and retrieval recall, but turned out to be especially brittle with heavily-quantized models. A follow-up study of God Mode degradation for 2-bit compression showed it's model dependent: Qwen 32B appears to show no substantial degradation from 4-bit to 2-bit, while Llama 3.1 70B degrades much more. All code + raw outputs are in the repo (link)."
 keywords:
@@ -603,7 +603,7 @@ def clean_sys(name):
 df['clean_sys'] = df['sys'].apply(clean_sys)
 
 fig_sys = px.violin(
-    df, x="clean_sys", y="correctness_score", color="clean_sys",
+    df, x="sys", y="correctness_score", color="clean_sys",
     box=True,
     color_discrete_map={
         "System A": "#636EFA", 
@@ -955,7 +955,7 @@ import json
 
 # --- UPDATE: Point to evals subdirectory ---
 EVALS_DIR = "evals"
-results_files = [i for i in os.listdir(EVALS_DIR) if i.endswith('jsonl') and not i.startswith('gold')]
+results_files = [i for i in os.listdir(EVALS_DIR) if i.endswith('jsonl') and not i.startswith('gold') and not 'llama3.1_70b_SysG' in i]
 all_records = []
 
 for f in results_files:
@@ -1275,7 +1275,7 @@ SYSTEM_MAP = {
 EVALS_DIR = "evals"
 results_files = [
     f for f in os.listdir(EVALS_DIR)
-    if f.startswith("evaluation_results") and f.endswith(".jsonl") and not f.startswith("gold")
+    if f.startswith("evaluation_results") and f.endswith(".jsonl") and not f.startswith("gold") and not 'llama3.1_70b_SysG' in f
 ]
 
 all_records = []
@@ -1607,7 +1607,7 @@ import plotly.express as px
 
 # --- UPDATE: Point to evals subdirectory ---
 EVALS_DIR = "evals"
-files = [f for f in os.listdir(EVALS_DIR) if f.endswith('.jsonl')]
+files = [f for f in os.listdir(EVALS_DIR) if f.endswith('.jsonl') and not 'llama3.1_70b_SysG' in f]
 data = []
 for file in files:
     # --- UPDATE: Join path with directory ---

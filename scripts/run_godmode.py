@@ -486,7 +486,7 @@ Direct Answer (with citations):""")
     return answer
 
 # ==============================================================================
-#  MAIN LOOP - FIXED VERSION
+#  MAIN LOOP
 # ==============================================================================
 
 def run_sys_g_v4():
@@ -552,7 +552,7 @@ def run_sys_g_v4():
         # 2. Wide Retrieval (k=100 or configured value)
         all_retrieved_docs = smart_retrieve(question, vector_store, k=CONFIG["retrieval_k"])
         
-        # IMPORTANT FIX: Calculate retrieval metrics on ALL retrieved docs
+        # Calculate retrieval metrics on ALL retrieved docs
         ret_metrics = calculate_retrieval_metrics(all_retrieved_docs, gold_doc_ids, question_type=q_type)
         
         # 3. Cross-Encoder Reranking (Top 10)

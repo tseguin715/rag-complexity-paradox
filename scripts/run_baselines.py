@@ -1,20 +1,17 @@
 """
-RAG Evaluation Test Harness with System D v5 FIXED - CONFIGURABLE VERSION
-WITH SYSTEM C PROPERLY IMPLEMENTED (Fixed "50" Bug)
+RAG Evaluation Test Harness - Configurable Version
 
 COMMAND LINE USAGE:
 python evaluate_configurable_4_enhanced_latest.py --llm [alias] --db [alias]
 Example: python evaluate_configurable_4_enhanced_latest.py --llm llama3b --db bge_m3
 
 This script evaluates different RAG systems against a gold standard dataset.
-System D v5 includes critical fixes for:
-- Counting questions (proper semantic filtering)
-- Contextual questions (improved chat history handling)
+System D includes:
+- Counting questions (semantic filtering)
+- Contextual questions (chat history handling)
 - Metric confusion (rating vs popularity)
 
-SYSTEM C FIX (v2):
-- Fixed the "50" bug where the system returned the raw retrieval limit (k=50)
-  when semantic filtering failed to extract terms.
+System C Features:
 - Improved regex for extracting search subjects (mentions, alludes to, etc.).
 - Strict fallback: returns 0 instead of len(docs) if semantic criteria exist but no matches found.
 
@@ -46,7 +43,7 @@ CONFIG = {
     "reranker_wait_time": 6.5,
 }
 
-import argparse # Added for CLI
+import argparse
 import json
 import time
 import os
@@ -525,7 +522,7 @@ def build_system_a_pipeline(retriever: Any, llm: Any) -> Runnable:
 
 
 # ==============================================================================
-#  SYSTEM C: HYBRID SEARCH RAG (FIXED!)
+#  SYSTEM C: HYBRID SEARCH RAG
 # ==============================================================================
 
 def build_system_c_pipeline(
@@ -535,17 +532,13 @@ def build_system_c_pipeline(
     vector_store: Any
 ) -> Runnable:
     """
-    System C: Hybrid Search RAG (FIXED v2)
+    System C: Hybrid Search RAG
     
-    Improvements over System A:
+    Features:
     1. Metadata filtering (hybrid search)
     2. Question type detection  
     3. Specialized prompts per type
-    4. PROPER counting with basic semantic filtering
-    
-    FIXES (v2):
-    - "50 bug" fixed: No longer returns k=50 when semantic filtering fails.
-    - Improved regex for subject extraction ("allude to", "mention", etc.).
+    4. Counting with basic semantic filtering
     """
     print("[Pipeline] Building System C (Hybrid Search RAG) - FIXED VERSION v2")
     
@@ -604,12 +597,12 @@ def build_system_c_pipeline(
     
     def basic_semantic_count(question: str, docs: List[Document]) -> int:
         """
-        FIXED: Basic semantic filtering for counting.
+        Basic semantic filtering for counting.
         
         Simpler than System D - uses keyword matching instead of LLM.
         Only applies if question has semantic criteria (title/plot).
         
-        FIX v2: Prevents returning raw 'k' (50) when semantic criteria exists but keywords miss.
+        Prevents returning raw 'k' when semantic filtering fails.
         """
         if not docs:
             return 0
@@ -628,7 +621,7 @@ def build_system_c_pipeline(
         quoted = re.findall(r"['\"]([^'\"]+)['\"]", question)
         search_terms.extend(quoted)
         
-        # FIXED: Broader regex for "subject" extraction (about, mention, allude to, etc.)
+        # Regex for subject extraction (about, mention, allude to, etc.)
         about_match = re.search(r"(?:about|mention|allude to|feature|involve|starring)\s+(.+?)(?:\?|$)", question, re.IGNORECASE)
         if about_match:
             terms = about_match.group(1).strip()
@@ -641,9 +634,9 @@ def build_system_c_pipeline(
         names = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', question)
         search_terms.extend(names)
         
-        # FIXED: Fallback if no specific terms found but we KNOW it's semantic
+        # Fallback if no specific terms found but we KNOW it's semantic
         # If we don't have search terms, we might fail to filter and return len(docs) (50)
-        # which is the bug. So we try to clean the question as a last resort.
+        # so we try to clean the question as a last resort.
         if not search_terms:
             # Remove query stopwords
             cleaned = re.sub(r'\b(how|many|movies|shows|tv|are|there|is|released|in|the|was|were)\b', '', question, flags=re.IGNORECASE)
@@ -736,7 +729,7 @@ def build_system_c_pipeline(
             # Capture docs
             doc_catcher(docs[:15])
             
-            # FIXED: Handle counting with basic semantic filtering
+            # Handle counting with basic semantic filtering
             if is_counting:
                 count = basic_semantic_count(question, docs)
                 print(f"    [SysC] Final count: {count}")
@@ -764,7 +757,7 @@ def build_system_c_pipeline(
 
 
 # ==============================================================================
-#  SYSTEM D: FIXED AGENTIC RAG (v5)
+#  SYSTEM D: AGENTIC RAG
 # ==============================================================================
 
 def build_system_d_pipeline(
@@ -775,7 +768,7 @@ def build_system_d_pipeline(
     reranker: Optional[CohereRerank] = None
 ) -> Runnable:
     """
-    System D: Fixed Agentic RAG (v5)
+    System D: Agentic RAG
     
     Full implementation with all agentic features.
     """
@@ -786,7 +779,7 @@ def build_system_d_pipeline(
     generator_llm = llm
 
     def contextualize_with_history(question: str, chat_history: List) -> str:
-        """Better contextualization with explicit instructions."""
+        """Contextualization with explicit instructions."""
         if not chat_history:
             return question
         
@@ -810,7 +803,7 @@ Return ONLY the rewritten standalone question, nothing else."""),
             return question
 
     def grade_docs(q: str, docs: List[Document]) -> bool:
-        """More lenient grader with better understanding."""
+        """Document grader."""
         if not docs:
             print(f"    [Grader] No docs to grade")
             return False
@@ -843,7 +836,7 @@ Be generous - if a document has any connection to the question topic, answer 'ye
             return True
 
     def apply_hybrid_search(question: str, filters: dict, is_counting: bool = False) -> List[Document]:
-        """Better hybrid search with appropriate k values."""
+        """Hybrid search with appropriate k values."""
         print(f"    [Hybrid] Filters: {filters}, Counting: {is_counting}")
         
         where_conditions = []

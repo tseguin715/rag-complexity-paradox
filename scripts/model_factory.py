@@ -31,7 +31,7 @@ def get_embedding_model(model_name: str):
     if model_name == "openai-large":
         return OpenAIEmbeddings(model="text-embedding-3-large")
 
-    # --- Tier 3: Enthusiast (Local, on your 4090) ---
+    # --- Tier 3: Enthusiast (Local High-End GPU) ---
     
     if model_name == "bge-m3":
         return HuggingFaceEmbeddings(
@@ -142,9 +142,9 @@ def get_generative_model(model_name: str):
     if model_name == "llama3.1-70b-iq2_xs":
         return ChatOllama(
             model="bazsalanszky/llama3.1:70B-instruct-iq2_xs",
-            num_ctx=8192,  # REDUCED from 16384 for stability
+            num_ctx=8192,  # Optimized for stability
             temperature=0,
-            num_predict=256,  # SHORT outputs for quantized model
+            num_predict=256,  # Short outputs for quantized model
             top_k=40,  # Conservative token selection
             top_p=0.9,
             repeat_penalty=1.1,
@@ -155,14 +155,14 @@ def get_generative_model(model_name: str):
             options={
                 "num_gpu": -1,  # Use all available GPUs
                 "num_thread": 8,  # Parallel processing
-                "low_vram": False,  # You have a 4090
+                "low_vram": False,
             }
         )
     
     if model_name == "qwen2-72b-q2_K":
         return ChatOllama(
             model="qwen2.5:72b-instruct-q2_K",
-            num_ctx=8192,  # REDUCED from 16384
+            num_ctx=8192,
             temperature=0,
             num_predict=256,
             top_k=40,
@@ -177,7 +177,7 @@ def get_generative_model(model_name: str):
     if model_name == 'qwen2.5:32b-instruct-q2_K':
         return ChatOllama(
             model='qwen2.5:32b-instruct-q2_K',
-            num_ctx=8192,  # REDUCED from 16384
+            num_ctx=8192,
             temperature=0,
             num_predict=256,
             top_k=40,
@@ -208,7 +208,7 @@ def get_generative_model(model_name: str):
     if model_name == "llama3.1:70b":
         return ChatOllama(
             model="llama3.1:70b",
-            num_ctx=8192,  # REDUCED from 16384 based on our findings
+            num_ctx=8192,  # Optimized for stability
             temperature=0,
             num_predict=512,
             top_k=10,  # More restrictive for full model
@@ -243,17 +243,17 @@ def get_generative_model(model_name: str):
 
 def get_optimal_system_for_model(model_name: str) -> str:
     """
-    Returns the optimal RAG system for a given model based on our testing.
+    Returns the optimal RAG system for a given model.
     """
     recommendations = {
         # Heavily quantized models
-        "llama3.1-70b-iq2_xs": "SysD",  # 52% performance, 7s latency
+        "llama3.1-70b-iq2_xs": "SysD",
         "qwen2-72b-q2_K": "SysD",
         "qwen2.5:32b-instruct-q2_K": "SysA",  # Simpler is better for 2-bit
         
         # Full/moderately quantized models
-        "llama3.1:70b": "SysD",  # 52% performance
-        "qwen2.5:32b": "SysA",  # Baseline works well
+        "llama3.1:70b": "SysD",
+        "qwen2.5:32b": "SysA",
         "llama3-8b": "SysA",  # Small model needs simple approach
         
         # High-end models

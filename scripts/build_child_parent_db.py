@@ -1,10 +1,9 @@
-
 import json
 import os
 import shutil
 import time
 from typing import List, Dict
-from tqdm import tqdm # You might need to pip install tqdm
+from tqdm import tqdm
 
 # LangChain Imports
 from langchain_chroma import Chroma
@@ -19,7 +18,6 @@ from model_factory import get_embedding_model
 
 SOURCE_FILE = "source_data.ndjson"
 
-# We will apply this technique to all your targets
 TARGET_DATABASES = [
     {
         "model_name": "bge-m3",
@@ -57,7 +55,7 @@ def prepare_batch_for_ingestion(items: List[Dict], embedding_model):
     ids_to_store = []
     
     for item in items:
-        # --- A. CONSTRUCT PARENT TEXT (What the LLM reads) ---
+        # --- A. CONSTRUCT PARENT TEXT ---
         # This is the rich context we want to return regardless of which vector matched
         parent_text = (
             f"Title: {item.get('title', 'Unknown')}\n"
@@ -69,7 +67,6 @@ def prepare_batch_for_ingestion(items: List[Dict], embedding_model):
         )
         
         # --- B. PREPARE METADATA (Shared by all children) ---
-        # Crucial: Use standard keys expected by main_cli.py
         base_metadata = {
             "id": item.get("id"),
             "title": item.get("title"),
@@ -87,7 +84,7 @@ def prepare_batch_for_ingestion(items: List[Dict], embedding_model):
         
         # --- C. CREATE CHILD CHUNKS (The Vectors) ---
         
-        # Child 1: The Title (Fixes exact match failures)
+        # Child 1: The Title
         title_text = f"{item.get('title', '')}"
         if title_text:
             texts_to_embed.append(title_text)
@@ -99,7 +96,7 @@ def prepare_batch_for_ingestion(items: List[Dict], embedding_model):
             
             ids_to_store.append(f"{doc_id}-title")
 
-        # Child 2: The Description (Standard semantic search)
+        # Child 2: The Description
         desc_text = item.get('description', '')
         if desc_text:
             texts_to_embed.append(desc_text)
@@ -111,7 +108,7 @@ def prepare_batch_for_ingestion(items: List[Dict], embedding_model):
             
             ids_to_store.append(f"{doc_id}-desc")
             
-        # Child 3: Metadata Soup (Fixes "Horror movies from 1980" queries)
+        # Child 3: Metadata Soup
         # We create a dense sentence describing the item
         meta_text = f"{item.get('title')} is a {item.get('genres')} {item.get('type')} released in {item.get('year')}."
         texts_to_embed.append(meta_text)
@@ -124,7 +121,6 @@ def prepare_batch_for_ingestion(items: List[Dict], embedding_model):
         ids_to_store.append(f"{doc_id}-meta")
 
     # 3. Generate Embeddings (Batch)
-    # This is efficient because we send one large list to the GPU/API
     if texts_to_embed:
         embeddings = embedding_model.embed_documents(texts_to_embed)
     else:
@@ -159,7 +155,6 @@ def build_database(config: Dict[str, str], raw_data: List[Dict]):
     try:
         embedding_model = get_embedding_model(model_name)
         
-        # Optimization for Jina v3
         if "jina" in model_name.lower():
             if hasattr(embedding_model, 'encode_kwargs'):
                 embedding_model.encode_kwargs['task'] = 'retrieval.passage'
@@ -177,7 +172,6 @@ def build_database(config: Dict[str, str], raw_data: List[Dict]):
     )
     
     # 4. Process in Batches
-    # We process raw items in batches of 50 (which becomes ~150 vectors)
     BATCH_SIZE = 50 
     total_items = len(raw_data)
     
