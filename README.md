@@ -9,7 +9,7 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 - **Complex pipelines can be fragile:** wide retrieval + reranking introduces failure modes (esp. with highly quantized models).
 - **Quantization fragility is model-dependent:** **4→2-bit** compression can be catastrophic for some models inside complex pipelines (e.g., Llama IQ2), while others degrade modestly.
 
-📄 **Read the write-up:** *(link to your hosted article)*  
+📄 **Read the write-up:** *(link to article)*  
 
 ---
 ## What’s in here
@@ -20,13 +20,14 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 - `evals/` — Directory containing the raw, per-question JSONL logs for all 96 configurations.
 
 ### 🚀 Benchmark Scripts (`scripts/`)
+- `scripts/build_child_parent_db.py` — Generates the ChromaDB vector stores (Child-Parent chunking).
 - `scripts/run_baseline.py` — The evaluation harness for Systems A (Baseline), B (Reranked), and C (Agentic).
 - `scripts/run_godmode.py` — The evaluation harness for System D ("God Mode" wide-retrieval).
 - `scripts/model_factory.py` — Configuration for LLMs and Embedding models (OpenAI, Gemini, Ollama).
 
+
 ### 🛠️ Data Construction & Setup (`setup/`)
 - `setup/create_source_data.py` — Scripts to fetch raw movie data via the TMDB API.
-- `setup/build_child_parent_db.py` — Generates the ChromaDB vector stores (Child-Parent chunking).
 - `setup/gold_set_update.py` — Updates the "Golden Answers" to account for data drift (e.g., changing movie ratings).
 - `setup/tmdb_ids_combined.csv` — List of TMDB IDs used to generate the dataset.
 - `setup/gold_set_template.jsonl` — The base template used to generate the time-accurate gold set.
