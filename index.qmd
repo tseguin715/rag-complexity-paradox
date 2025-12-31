@@ -4,7 +4,7 @@ title: "The RAG Complexity Paradox"
 subtitle: "Why 20× more spend didn’t beat a ~70% ceiling"
 author:
   - name: Trevor Seguin
-date: 2026.1.6
+date: 2026.1.5
 date-format: "MMMM D, YYYY"
 description: "After evaluating 96 RAG configurations across 4 architectures, 6 LLMs, and 4 embedding models on a 100-question TMDB benchmark, there seems to be no reliable improvement from highly complex agentic systems. The top configurations clustered around ~70% correctness (the practical ceiling for the testing conditions), and several very different configurations tie for best. Moderate agentic control (System C: query rewriting + doc grading) consistently lands on the efficiency frontier of latency and accuracy (e.g. ~70% at 1s with GPT-4o + OpenAI-large embeddings). The most complex architecture -- System D God Mode -- can achieve high performance in correctness and retrieval recall, but turned out to be especially brittle with heavily-quantized models. A follow-up study of God Mode degradation for 2-bit compression showed it's model dependent: Qwen 32B appears to show no substantial degradation from 4-bit to 2-bit, while Llama 3.1 70B degrades much more. All code + raw outputs are in the repo (link)."
 keywords:
@@ -640,17 +640,15 @@ fig_sys.show(config={'responsive': True})
 
 :::
 
-Distributional View by Model, Embedding, and System
-
-To move beyond ranked averages, Figure 5 visualizes correctness distributions using violin plots grouped by generator model, embedding model, and system architecture. 
+To move beyond ranked averages, Figures 3-5 visualize correctness distributions using violin plots grouped by generator model (LLM), embedding model, and system architecture (use the tabs in Figure 3 to see Figures 4 and 5). 
 
 When grouped by generator model, most models exhibit relatively tight distributions centered around the mid-0.6 range. However, Llama 3.1 70B-IQ2 stands out with a much broader variance: while some configurations within this LLM perform competitively, others degrade sharply, producing a long lower tail. This suggests that the model’s performance is highly sensitive to other components of its configuration.
 
 Grouping by embedding model reveals a more modest effect. OpenAI and Jina embeddings produce slightly higher median correctness and tighter distributions, while bge-m3 shows greater variance and a lower median. Importantly, embeddings seem to influence consistency more than peak performance.
 
-The most striking pattern appears when results are grouped by system architecture. Systems A, B, and C exhibit relatively compact distributions, with gradual improvements from naive retrieval (System A) through reranking and query rewriting (Systems B and C). In contrast, System D (“God Mode”) shows substantially higher variance. While its best configurations are among the highest in correctness, its worst configurations lag behind significantly. This instability suggests that new modes of failure are introduced by its increased complexity.
+The most striking pattern appears when results are grouped by system architecture. Systems A, B, and C exhibit relatively compact distributions, with gradual improvements from naive retrieval (System A) to hybrid filtering/routing (System B) and light agentic control via rewriting + grading (System C). In contrast, System D (“God Mode”) shows substantially higher variance. While its best configurations are among the highest in correctness, its worst configurations lag behind significantly. This instability suggests that new modes of failure are introduced by its increased complexity.
 
-Altogether, these results suggest that increasing RAG sophistication does not necessarily translate to improved performance. Indeed, more complex systems appear to trade robustness for flexibility. In particular, highly agentic pipelines can amplify weaknesses in models paired with it—especially for aggressively quantized or smaller models—leading to unpredictable outcomes.
+Altogether, these results suggest that increasing RAG sophistication does not necessarily translate to improved performance. Indeed, more complex systems appear to trade robustness for flexibility. In particular, highly agentic pipelines can amplify weaknesses in models paired with it -- especially for aggressively quantized or smaller models -- leading to unpredictable outcomes.
 
 Why does System D behave this way, and what are the conditions that lead to its underperformance? The following sections examine this.
 
