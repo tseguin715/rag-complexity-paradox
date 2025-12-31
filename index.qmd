@@ -4,7 +4,7 @@ title: "The RAG Complexity Paradox"
 subtitle: "Why 20× more spend didn’t beat a ~70% ceiling"
 author:
   - name: Trevor Seguin
-date: 2025.12.31
+date: 2026.1.6
 date-format: "MMMM D, YYYY"
 description: "After evaluating 96 RAG configurations across 4 architectures, 6 LLMs, and 4 embedding models on a 100-question TMDB benchmark, there seems to be no reliable improvement from highly complex agentic systems. The top configurations clustered around ~70% correctness (the practical ceiling for the testing conditions), and several very different configurations tie for best. Moderate agentic control (System C: query rewriting + doc grading) consistently lands on the efficiency frontier of latency and accuracy (e.g. ~70% at 1s with GPT-4o + OpenAI-large embeddings). The most complex architecture -- System D God Mode -- can achieve high performance in correctness and retrieval recall, but turned out to be especially brittle with heavily-quantized models. A follow-up study of God Mode degradation for 2-bit compression showed it's model dependent: Qwen 32B appears to show no substantial degradation from 4-bit to 2-bit, while Llama 3.1 70B degrades much more. All code + raw outputs are in the repo (link)."
 keywords:
@@ -37,6 +37,17 @@ format:
     include-in-header:
       - text: |
           <script defer src="https://cloud.umami.is/script.js" data-website-id="915382e1-9b49-4bc2-848d-365a7baba5b7"></script>
+          <style>
+            /* Force tables to scroll on mobile instead of squishing */
+            .cell-output-display {
+              overflow-x: auto;
+              display: block;
+            }
+            /* Ensure Plotly charts take full width */
+            .plotly-graph-div {
+              width: 100% !important;
+            }
+          </style>
     include-after-body:
       - text: |
           <hr>
@@ -92,7 +103,7 @@ About "agentic" RAG: when you think about it, it might sound a little silly. Why
 
 This study aims to be a small investigation in the usability of several modern LLMs and embedding models -- including popular commercial offerings as well as some smaller, open-source models -- in different RAG architectures for retrieval of data for TV and movies. We study structured question answering over a fixed corpus of movie and television data, including titles, metadata, and short plot descriptions. The question consists of simple factual lookups, filtering, aggregation, and multi-hop reasoning. System performance is evaluated in several metrics: retrieval quality (e.g., recall and MRR), answer correctness and faithfulness as judged by a reference LLM, and overall latency. The intent is not to model a production-scale deployment, but rather to compare tradeoffs under controlled conditions, with a particular focus on how increasing RAG complexity interacts with model size and architecture. The scope of RAG systems for this study includes simple "naive" RAG and considers a handful of "agentic" systems of increasing complexity. 
 
-Part of the motivation for this study came from my discovery of a 70B model -- Llama 3.1 70B-IQ2 -- that could run entirely on my RTX 4090(!). In the local LLM "world", it seemed to be kind of an informal benchmark to be able to run a 70b model in home hardware (without CPU offloading). However, the lowest commonly accepted quantization for anything useful seems to be 4-bit. The 4-bit quant of Llama 3.1 70b requires about ~40gb of RAM, so even a video card like the RTX 4090 can't hold it without offloading partially to the CPU and tanking the inference speed. After loading up Llama 3.1 70B-IQ2 in Ollama recently, I was excited to see it running at about 50 tokens/second, which is very useable. However, while this was all well and good, it raised an obvious question: what is the hidden cost of such an aggressive quantization? This study aimed to find out whether this and other inexpensive models can be used as more than a "toy" or proof-of-concept, while throwing some some high-quality commercial models into the fray for comparison.
+Part of the motivation for this study came from my discovery of a 70B model -- Llama 3.1 70B-IQ2 -- that could run entirely on my RTX 4090(!). In the local LLM "world", it seemed to be kind of an informal benchmark to be able to run a 70b model in home hardware (without CPU offloading). However, the lowest commonly accepted quantization for anything useful seems to be 4-bit. The 4-bit quant of Llama 3.1 70b requires about ~40gb of RAM, so even a video card like the RTX 4090 can't hold it without offloading partially to the CPU and tanking the inference speed. After loading up Llama 3.1 70B-IQ2 in Ollama recently, I was excited to see it running at about 50 tokens/second, which is very useable. However, while this was all well and good, it raised an obvious question: what is the hidden cost of such an aggressive quantization? This study aimed to find out whether this and other inexpensive models can be used as more than a "toy" or proof-of-concept, while throwing some high-quality commercial models into the fray for comparison.
 
 # Methods
 
@@ -143,11 +154,17 @@ fig_dist = px.bar(
 fig_dist.update_traces(textposition='outside')
 
 fig_dist.update_layout(
-    height=500, 
-    showlegend=False,
-    width=None,
-    autosize=True,
-    margin=dict(l=20, r=20)
+    height=500,
+    xaxis_title="",
+    yaxis_title="Correctness Score",
+    margin=dict(l=10, r=10, t=30, b=10),
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1
+    )
 )
 
 fig_dist.show()
@@ -522,7 +539,7 @@ show(
 **Table 4**. All 96 configurations ranked by correctness score (default sort).
 :::
 
-Table 4 shows the raw results for all 96 evaluated configurations, sorted by correctness. Each row corresponds to a unique configuration of RAG sytem architecture, LLM, and embedding model; with additional columns for metrics such as faithfulness, latency, token usage, and retrieval recall. 
+Table 4 shows the raw results for all 96 evaluated configurations, sorted by correctness. Each row corresponds to a unique configuration of RAG system architecture, LLM, and embedding model; with additional columns for metrics such as faithfulness, latency, token usage, and retrieval recall. 
 
 A cursory look at the table shows a few high-level patterns. First, there appears to be a relatively narrow band of configurations at around 70% correctness, no model "convincingly" better than the rest. GPT-4o expectedly shows up in many of the top-ranked configurations, but some open-source LLMs and embedding models show up as well, such as Qwen2.5 32B and Jina-V3 for embeddings. 
 
@@ -755,13 +772,29 @@ fig_main.update_xaxes(type="log", range=range_log, title="Latency (ms)")
 fig_main.update_yaxes(title="Correctness Score")
 
 fig_main.update_layout(
-    height=600,
-    margin=dict(l=10, r=10, t=50, b=50),
+    height=700, # Good height for mobile
+    # MARGINS:
+    # t=100: Extra room at top for Title + Buttons
+    # b=100: Extra room at bottom for the Legend
+    margin=dict(l=10, r=10, t=100, b=100),
+    
     legend_title_text="Architecture",
-    updatemenus=updatemenus
+    updatemenus=updatemenus,
+    
+    # LEGEND CONFIGURATION
+    # We place it horizontally at the very bottom. 
+    # Since labels are short ("SysA"), they fit in one row on mobile.
+    legend=dict(
+        orientation="h",      # Horizontal (The "columns" you wanted)
+        yanchor="top",
+        y=-0.15,              # Push it below the X-axis
+        xanchor="center",
+        x=0.5                 # Center it
+    )
 )
 
 fig_main.show()
+
 ```
 
 ::: {.fig-caption}
@@ -829,8 +862,16 @@ fig_retrieval.update_layout(
     height=600,
     xaxis=dict(range=[-0.05, 1.05]),
     yaxis=dict(range=[-0.05, 1.05]),
-    legend=dict(y=0.05, x=0.05, bgcolor="rgba(255,255,255,0.8)"),
-    margin=dict(t=30)
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.15,
+        xanchor="center",
+        x=0.5,
+        bgcolor="rgba(0,0,0,0)"
+    )
 )
 
 fig_retrieval.show()
@@ -913,18 +954,17 @@ fig.add_annotation(
 fig.update_layout(
     xaxis_title="Token Usage (Cost Proxy)",
     yaxis_title="Accuracy",
-    height=600,
+    height=650, # Increased height to fit legend
     template="plotly_white",
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
     legend=dict(
+        orientation="h",
         yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=1.01,
-        bgcolor="rgba(255,255,255,0.9)",
-        bordercolor="gray",
-        borderwidth=1
-    ),
-    margin=dict(r=150, t=30)
+        y=-0.15,
+        xanchor="center",
+        x=0.5
+    )
 )
 
 fig.add_hline(y=0.70, line_dash="dash", line_color="gray",
@@ -1106,7 +1146,7 @@ fig.show()
 ```
 
 ::: {.fig-caption}
-**Figure 9**. 95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The difference in correctness is statistically insignficiant between System C and Systems A and B, but statistically significant between Systems C and D.  
+**Figure 9**. 95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The difference in correctness is statistically insignficant between System C and Systems A and B, but statistically significant between Systems C and D.  
 :::
 
 Is System C the best in terms of correctness? With only 100 questions, there's not enough power at present to distinguish small differences among the top systems. To assess uncertainty, paired, per-question 95% bootstrap confidence intervals were calculated for the mean correctness difference between System C and the rest.
@@ -1161,13 +1201,17 @@ fig_gap = px.bar(
 fig_gap.update_layout(
     yaxis=dict(range=[0, 1.05], title="Score (0-1)"),
     xaxis_title=None,
+    width=None, # Remove fixed width=800 so it fills screen
+    height=500,
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
     legend=dict(
         orientation="h", 
-        yanchor="bottom", y=1.02, 
-        xanchor="right", x=1
-    ),
-    width=800, height=500,
-    margin=dict(t=30)
+        yanchor="top", 
+        y=-0.2, 
+        xanchor="center", 
+        x=0.5
+    )
 )
 
 fig_gap.show()
@@ -1234,7 +1278,7 @@ fig.update_layout(
         range=[0.6, 0.75]
     ),
     yaxis2=dict(
-        title="Est. Tokens per Query",
+        title="Est. Tokens",
         title_font=dict(color="#e74c3c"),
         tickfont=dict(color="#e74c3c"),
         overlaying='y',
@@ -1242,9 +1286,17 @@ fig.update_layout(
         range=[0, 6000]
     ),
     template="plotly_white",
-    height=500,
-    legend=dict(x=0.05, y=0.95, bgcolor="rgba(255,255,255,0.8)"),
-    margin=dict(t=30)
+    height=550,
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.2,
+        xanchor="center",
+        x=0.5,
+        bgcolor="rgba(0,0,0,0)"
+    )
 )
 
 fig.show()
@@ -1335,8 +1387,16 @@ fig.update_layout(
     yaxis=dict(range=[0, 1.05], title="Avg Correctness Score"),
     xaxis_title="Question Category",
     legend_title="Sys",
-    height=500,
-    margin=dict(t=30),
+    height=550,
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.25, # Push further down because x-axis labels (categories) might wrap
+        xanchor="center",
+        x=0.5
+    )
 )
 
 fig.show()
@@ -1427,9 +1487,16 @@ fig.update_layout(
     yaxis_title="Correctness Score",
     yaxis=dict(range=[0.2, 0.75], tickformat=".0%"),
     template='plotly_white',
-    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-    margin=dict(t=30, b=40),
-    height=500
+    height=550,
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.2,
+        xanchor="center",
+        x=0.5
+    )
 )
 
 fig.show()
@@ -1530,8 +1597,16 @@ for _, r in llama_rows.iterrows():
 
 fig.update_layout(
     yaxis_title="Performance Change (pp)",
-    height=500,
-    margin=dict(t=30),
+    height=550,
+    # MOBILE FIX:
+    margin=dict(l=10, r=10, t=30, b=100),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.2,
+        xanchor="center",
+        x=0.5
+    )
 )
 
 fig.show()
@@ -1697,7 +1772,8 @@ if not df.empty and 'experiment_name' in df.columns:
         height=600,
         xaxis=dict(range=[x_min - x_range*0.2, x_max + x_range*0.2]),
         yaxis=dict(range=[y_min - y_range*0.2, y_max + y_range*0.2]),
-        margin=dict(t=30)
+        # MOBILE FIX: Slightly larger T/B margins for the text annotations
+        margin=dict(l=10, r=10, t=40, b=40)
     )
 
     fig_quad.show()
