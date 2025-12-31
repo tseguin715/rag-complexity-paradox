@@ -115,7 +115,7 @@ Scripts are provided to do these steps.
 Obtain an API key from tmdb.org and run:
 
 ```bash
-python setup/create_source_data.py --api_key 'YOUR_KEY_HERE'
+python create_source_data.py --api_key 'YOUR_KEY_HERE'
 ```
 
 This will create source_data.ndjson. This process requires tmdb_ids_combined.csv, which contains the databases's movie/TV IDs. This process will take several hours -- it took me ~3 hours during a test run.
@@ -136,7 +136,7 @@ Q_097 | How many votes did "My Dog Skip" receive? | 279 | 284
 The gold_set.json creation step depends on gold_set_template.jsonl and source_data.ndjson. It also creates a drift_report.csv that shows the answers that have changed.
 
 ```bash
-python setup/gold_set_update.py
+python gold_set_update.py
 ```
 
 **Important:** Move the generated source_data.ndjson and gold_set.jsonl files from the setup directory to the scripts directory.
@@ -146,7 +146,7 @@ python setup/gold_set_update.py
 This will create the four databases in scripts/db using source_data.ndjson:
 
 ```bash
-python scripts/build_child_parent_db.py
+python build_child_parent_db.py
 ```
 
 The databases are about **16 GB in total.**
@@ -162,5 +162,5 @@ Note: This may take several hours/days depending on your hardware and API limits
 
 You can also run individual experiments using the CLI arguments:
 ```bash
-python scripts/run_baselines.py --llm gpt4o --db openai_large
+python run_baselines.py --llm gpt4o --db openai_large
 ```
