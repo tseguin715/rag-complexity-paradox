@@ -620,7 +620,7 @@ def clean_sys(name):
 df['clean_sys'] = df['sys'].apply(clean_sys)
 
 fig_sys = px.violin(
-    df, x="sys", y="correctness_score", color="clean_sys",
+    df, x="clean_sys", y="correctness_score", color="clean_sys",
     box=True,
     color_discrete_map={
         "System A": "#636EFA", 
