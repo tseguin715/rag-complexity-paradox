@@ -76,8 +76,8 @@ format:
 ![](abstract_long.png){width=100%}
 
 ::: {.callout-tip icon=false}
-## Key takeaways (for builders)
-- **Complexity does not necessarily equal accuracy**: Top configs cluster around ~70% correctness, with no improvement from the most complex pipelines.
+## Main points
+- **Complexity does not necessarily equal accuracy**: Top configs cluster around ~70% correctness, with no added improvement from the most complex pipelines.
 - **Cost gap is real**: Lack of substantial improvement from highly complex RAG architecture despite a 20x increase in compute and tokens. 
 - **System C is the sweet spot**: Moderate agentic workflows (grading + rewriting) sit right on the efficiency frontier for latency, cost and accuracy.
 - **Complex pipelines amplify model weakness.**: Heavy reranking in "God Mode" (System D) caused degradation in aggressively quantized models.

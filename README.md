@@ -3,11 +3,11 @@
 
 This repo contains the full code + outputs for an empirical RAG evaluation: **96 configurations** across **4 architectures**, **6 LLMs**, and **4 embedding models** on a **100-question The Movie Database (TMDB) QA benchmark**.
 
-**Headline results**
-- **Complexity ≠ accuracy:** Top configs cluster around ~70% correctness; no consistent gain from "God Mode" (highest complexity architecture).
-- **There’s a clear sweet spot:** **moderate agentic control** (query rewriting + doc grading) sits on the best accuracy/latency frontier.
-- **Complex pipelines can be fragile:** wide retrieval + reranking introduces failure modes (esp. with highly quantized models).
-- **Quantization fragility is model-dependent:** **4→2-bit** compression can be catastrophic for some models inside complex pipelines (e.g., Llama IQ2), while others degrade modestly.
+**Summary of main points**
+- **Complexity does not necessarily equal accuracy**: Top configs cluster around ~70% correctness, with no added improvement from the most complex pipelines.
+- **Cost gap is real**: The lack of improvement from highly complex architecture is despite a >20x increase in compute and tokens. 
+- **System C is the sweet spot**: Moderate agentic workflows -- grading + rewriting -- sit right on the efficiency frontier for latency, cost and accuracy.
+- **Complex pipelines amplify model weakness.**: Heavy reranking in "God Mode" (System D, the most complex system) caused degradation in aggressively quantized models.
 
 📄 **Read the write-up:** *(link to article)*  
 
