@@ -1632,7 +1632,7 @@ To summarize, these findings suggest the existence of a fragility threshold in c
 
 # Conclusions
 
-If I were to design a production system for this database and these types of questions, these would be my recommendations: 
+These would be my recommendations for production-level deployment configurations:
 
 - **For Startups (budget-conscious):**
   - **System:** C (Agentic)
