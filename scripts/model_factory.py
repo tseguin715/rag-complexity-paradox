@@ -211,7 +211,7 @@ def get_generative_model(model_name: str):
             num_ctx=8192,  # Optimized for stability
             temperature=0,
             num_predict=512,
-            top_k=10,  # More restrictive for full model
+            top_k=40,  
             top_p=0.9,
             repeat_penalty=1.1,
             seed=42,

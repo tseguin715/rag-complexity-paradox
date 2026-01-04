@@ -33,7 +33,7 @@ except ImportError:
     print("⚠️  WARNING: sentence-transformers not found. Reranking will be skipped.")
 
 # Import user's model factory
-from model_factory import get_embedding_model, get_generative_model
+from model_factory import get_embedding_model, get_generative_model, get_model_specific_prompt_adjustments
 
 # ==============================================================================
 #  CONFIG
@@ -401,11 +401,12 @@ def smart_retrieve(question: str, vector_store, k=50) -> List[Document]:
     print(f"       📚 Retrieved {len(docs)} documents")
     return docs
 
-def generate_answer(question: str, docs: List[Document], llm) -> str:
+def generate_answer(question: str, docs: List[Document], llm, model_name: str) -> str:
     """Generate answer with improved Ollama support, strict citations, and suppressed internal knowledge."""
     if not docs: 
         return "I cannot find the answer in the provided documents."
     
+    # 1. Prepare Context
     context_str = ""
     for d in docs:
         # Retrieve the specific ID from metadata for citation
@@ -414,10 +415,31 @@ def generate_answer(question: str, docs: List[Document], llm) -> str:
         # Inject [Doc X] into the context so the LLM can reference it
         context_str += f"[Doc {doc_id}] {meta}\n{d.page_content}\n\n"
     
-    # Check if this is an Ollama model
-    if is_ollama_model(llm):
+    # 2. Check for Model-Specific Prompt Adjustments
+    # We construct the "base" content (Question + Context) which fits the standard template slots
+    base_content = f"Question: {question}\n\nContext:\n{context_str}"
+    
+    # This calls your factory function. 
+    # If the model is 2-bit (iq2_xs), it returns a single simplified string.
+    # If the model is standard, it returns base_content unchanged.
+    adjusted_prompt_text = get_model_specific_prompt_adjustments(model_name, base_content)
+    
+    # 3. Choose the Prompt Template
+    chain_input = {}
+    
+    # TRIGGER: If the text CHANGED, it means we hit the quantization adjustment -> Use simple mode
+    if adjusted_prompt_text != base_content:
+        print(f"       ⚠️  Using Simplified Prompt for {model_name}")
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a helpful assistant that answers questions based on provided context.
+            ("human", "{adjusted_text}")
+        ])
+        chain_input = {"adjusted_text": adjusted_prompt_text}
+        
+    else:
+        # STANDARD LOGIC (For GPT-4, 4-bit Llama, etc.)
+        if is_ollama_model(llm):
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", """You are a helpful assistant that answers questions based on provided context.
 
 CRITICAL INSTRUCTIONS:
 1. Answer the question directly using ONLY information from the context
@@ -426,7 +448,7 @@ CRITICAL INSTRUCTIONS:
 4. If the answer is not in the context, say "I cannot find the answer in the provided documents"
 5. Be concise and specific
 6. Do not use any knowledge from your training data - ONLY use the provided context"""),
-            ("human", """Answer this question based ONLY on the context provided.
+                ("human", """Answer this question based ONLY on the context provided.
 
 Question: {question}
 
@@ -434,12 +456,14 @@ Context:
 {context}
 
 Direct Answer (with citations):""")
-        ])
-    else:
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """Answer based strictly on the context. Cite sources using [Doc ID]. If answer is not found, say so. Do not use external knowledge."""),
-            ("human", "Question: {question}\n\nContext:\n{context}")
-        ])
+            ])
+            chain_input = {"question": question, "context": context_str}
+        else:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", """Answer based strictly on the context. Cite sources using [Doc ID]. If answer is not found, say so. Do not use external knowledge."""),
+                ("human", "Question: {question}\n\nContext:\n{context}")
+            ])
+            chain_input = {"question": question, "context": context_str}
     
     chain = prompt | llm | StrOutputParser()
     
@@ -448,8 +472,8 @@ Direct Answer (with citations):""")
     
     for attempt in range(max_attempts):
         try:
-            answer = chain.invoke({"question": question, "context": context_str}, 
-                                config={"callbacks": [main_token_tracker]})
+            # We use chain_input here, which is set dynamically above
+            answer = chain.invoke(chain_input, config={"callbacks": [main_token_tracker]})
         except Exception as e:
             print(f"       ❌ Generation failed: {e}")
             return "I cannot generate an answer at this time."
@@ -562,7 +586,7 @@ def run_sys_g_v4():
         rerank_metrics = calculate_retrieval_metrics(top_docs, gold_doc_ids, question_type=q_type)
         
         # 4. Generate answer using reranked docs
-        answer = generate_answer(question, top_docs, gen_llm)
+        answer = generate_answer(question, top_docs, gen_llm, gen_llm_name)
         
         latency = (time.time() - start_ts) * 1000
         
