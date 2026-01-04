@@ -80,7 +80,7 @@ format:
 - **Complexity does not necessarily equal accuracy**: Top configs cluster around ~70% correctness, with no added improvement from the most complex pipelines.
 - **Cost gap is real**: Lack of substantial improvement from highly complex RAG architecture despite a 20x increase in compute and tokens. 
 - **System C is the sweet spot**: Moderate agentic workflows (grading + rewriting) sit right on the efficiency frontier for latency, cost and accuracy.
-- **Complex pipelines amplify model weakness.**: Heavy reranking in "God Mode" (System D) caused degradation in aggressively quantized models.
+- **Complex pipelines amplify model weakness**: Heavy reranking in "God Mode" (System D) caused degradation in aggressively quantized models.
 
 :::
 
@@ -1178,7 +1178,7 @@ fig.show()
 ```
 
 ::: {.fig-caption}
-**Figure 9**. 95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The difference in correctness is statistically insignficant between System C and Systems A and B, but statistically significant between Systems C and D.  
+**Figure 9**. 95% bootstrap confidence intervals for mean correctness differences between pairs of RAG architectures. The difference in correctness is statistically insignificant between System C and Systems A and B, but statistically significant between Systems C and D.  
 :::
 
 Is System C the best in terms of correctness? With only 100 questions, there's not enough power at present to distinguish small differences among the top systems. To assess uncertainty, paired, per-question 95% bootstrap confidence intervals were calculated for the mean correctness difference between System C and the rest.
@@ -1338,7 +1338,7 @@ fig.show()
 **Figure 11**. The diminishing returns of increasing context size (k) in naive RAG—costs grow linearly while recall saturates.
 :::
 
-Figure 11 examines the effect of k -- the number of documents retrieved -- on recall and token usage in the naive RAG baseline (System A). This analysis was motivated by an observation, after completing all experiments, that token use by System A was relatively high among the different RAG systems in this study (see Figure 8). This raised the possibility that the value chosen for k (20) was a little too high. Figure 11 shows that recall rapidly improves up to about k=5 to 10, but only modestly improves beyond that, while token use continues to grow linearly. While similar performance in System A in the experiments of this study would have probably been observed with a lower k and incurred smaller token costs, this highlight a general pattern that recurs through this study: retrieval recall often saturates well before system costs do. 
+Figure 11 examines the effect of k -- the number of documents retrieved -- on recall and token usage in the naive RAG baseline (System A). This analysis was motivated by an observation, after completing all experiments, that token use by System A was relatively high among the different RAG systems in this study (see Figure 8). This raised the possibility that the value chosen for k (20) was a little too high. Figure 11 shows that recall rapidly improves up to about k=5 to 10, but only modestly improves beyond that, while token use continues to grow linearly. While similar performance in System A in the experiments of this study would have probably been observed with a lower k and incurred smaller token costs, this highlights a general pattern that recurs through this study: retrieval recall often saturates well before system costs do. 
 
 
 ```{python}
@@ -1694,14 +1694,14 @@ These would be my recommended configurations for production-level deployment:
 - **What to Avoid:**
   - System D (God Mode) — fragile and expensive
   - BGE-M3 embeddings — consistently underperform
-  - 2-bit quantization with any complex architecture
+  - 2-bit quantization with complex architectures (unless thoroughly validated for robustness)
 
 
 96 RAG configurations were assembled and tested using questions that could be answered with TV and movie data. The RAG architectures ranged from simple "naive" RAG to agentic systems that included reranking, iterative retrieval, and self-evaluation. The aim was to evaluate whether the complexity in RAG systems would correlate with performance. The tested configurations showed a ~70% peak correctness that was obtained most consistently by the agentic System C. On the other hand, the "God Mode" agentic System D exhibited high variance in performance -- it performed very well in some systems, but degraded sharply in others -- particularly with the aggressively quantized Llama 3.1 70B-IQ2.
 
 A lackluster performance by 2-bit models like Llama 3.1 70B-IQ2 is perhaps unsurprising. However, when investigating the effects of moving from 4-bit to 2-bit, it was shown that the degradation for Llama 3.1 70B was markedly worse than for Qwen 2.5 32B. Therefore, performance appears to be shaped by a complex interplay between model architecture, quantization, and an error-amplifying effect of the complex System D pipeline.
 
-It should be noted that most aggressively quantized model -- Llama 3.1 70B-IQ2 -- is a community-produced release, rather than an official Meta release. Therefore, these results should not be interpreted as definitive judgments on the Llama architecture itself. Moreover, newer open-source models (e.g., Llama 3.3) were released after the completion of this study and not evaluated here. 
+It should be noted that the most aggressively quantized model -- Llama 3.1 70B-IQ2 -- is a community-produced release, rather than an official Meta release. Therefore, these results should not be interpreted as definitive judgments on the Llama architecture itself. Moreover, newer open-source models (e.g., Llama 3.3) were released after the completion of this study and not evaluated here. 
 
 Altogether, these findings suggest that “more agentic” is not necessarily better. Moderately agentic designs such as System C appear to strike a favorable balance between retrieval quality, robustness, and cost. The accuracy/latency tradeoffs are summarized in Figure 15 for all systems. More complex pipelines may still be valuable in specific settings, but only in configurations with LLMs and embeddings of sufficient robustness. 
 
