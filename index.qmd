@@ -883,13 +883,13 @@ The data points in Figure 7 show an almost linear trend. Systems C and D clearly
 
 
 ```{python}
-
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
-df=pd.read_csv('results_table.csv')
 
+# 1. Load Data
+df = pd.read_csv('results_table.csv')
 
 def clean_and_rename_sys(name):
     if "SysA" in name: return "System A (Naive)"
@@ -909,6 +909,7 @@ system_colors = {
     'System D (God Mode)': '#9b59b6'
 }
 
+# 2. Draw Scatter Traces
 for system in sorted(df['Article_System'].unique()):
     system_df = df[df['Article_System'] == system]
     
@@ -930,6 +931,7 @@ for system in sorted(df['Article_System'].unique()):
         hovertemplate='<b>%{text}</b><br>Tokens: %{x}<br>Accuracy: %{y:.2%}<extra></extra>'
     ))
 
+# 3. Add Standard Annotations
 fig.add_annotation(
     x=2050, y=0.73,
     text="System C: High accuracy,<br>Low token usage 👍",
@@ -938,21 +940,58 @@ fig.add_annotation(
     bordercolor="#2ecc71"
 )
 
-fig.add_annotation(
-    x=4800, y=0.25,
-    text="System D with Llama:<br>High cost, low accuracy",
-    showarrow=False, arrowhead=2, ax=20, ay=40,
-    bgcolor="rgba(155, 89, 182, 0.1)",
-    bordercolor="#9b59b6"
-)
+fig.add_hline(y=0.70, line_dash="dash", line_color="gray",
+              annotation_text="70% Ceiling", annotation_position="top left")
 
 
+# 4. DRAW THE TIGHTER BOX AROUND LLAMA FAILURES
+# ---------------------------------------------------------
+llama_fail_points = df[
+    (df['llm'].str.contains('iq2', case=False)) & 
+    (df['Article_System'] == 'System D (God Mode)')
+]
+
+if not llama_fail_points.empty:
+    x_min, x_max = llama_fail_points['main_total_tokens'].min(), llama_fail_points['main_total_tokens'].max()
+    y_min, y_max = llama_fail_points['correctness_score'].min(), llama_fail_points['correctness_score'].max()
+    
+    # ADJUST PADDING HERE
+    pad_x = 250   # Horizontal padding
+    pad_y = 0.05  # REDUCED Vertical padding (was 0.08)
+    
+    x0, x1 = x_min - pad_x, x_max + pad_x
+    y0, y1 = y_min - pad_y, y_max + pad_y
+    
+    # Draw Rectangle
+    fig.add_shape(
+        type="rect",
+        x0=x0, y0=y0, x1=x1, y1=y1,
+        line=dict(
+            color="#9b59b6",
+            width=2,
+            dash="dot", 
+        ),
+        fillcolor="rgba(155, 89, 182, 0.05)", 
+        layer="below"
+    )
+    
+    # Draw Text
+    fig.add_annotation(
+        x=(x0 + x1) / 2, 
+        y=(y0 + y1) / 2, 
+        text="<b>System D with Llama:</b><br>High cost, low accuracy",
+        showarrow=False,
+        font=dict(size=12, color="#7d3c98"),
+        bgcolor="rgba(255, 255, 255, 0.7)", 
+        borderpad=4
+    )
+
+# 5. Final Layout
 fig.update_layout(
     xaxis_title="Token Usage (Cost Proxy)",
     yaxis_title="Accuracy",
-    height=650, # Increased height to fit legend
+    height=650,
     template="plotly_white",
-    # MOBILE FIX:
     margin=dict(l=10, r=10, t=30, b=100),
     legend=dict(
         orientation="h",
@@ -962,9 +1001,6 @@ fig.update_layout(
         x=0.5
     )
 )
-
-fig.add_hline(y=0.70, line_dash="dash", line_color="gray",
-              annotation_text="70% Ceiling", annotation_position="top left")
 
 fig.show()
 ```
@@ -1419,7 +1455,7 @@ Why did the complex System D fail where the simpler System C succeeded? Failure 
 
 | Question | System C (Agentic) | System D (GodMode) | What happened? |
 |:---|:---|:---|:---|
-| **"What is the popularity score of Armageddon (1998)?"** | **"7.838"** (Correct) | *"The popularity score of Armageddon (1998) is 6.4/10 [Doc 20603]."* (Incorrect) | **Metric confusion under noise:** God Mode returned a rating-style number for a popularity field. It grabbed a number from the metadata that looked plausible but wasn't the correct one. |
+| **"What is the popularity score of Armageddon (1998)?"** | **"7.838"** (Correct) | *"The popularity score of Armageddon (1998) is 6.8/10 [Doc 20603]."* (Incorrect) | **Metric confusion under noise:** God Mode returned a rating-style number for a popularity field. It grabbed a number from the metadata that looked plausible but wasn't the correct one. |
 | **"How much gold was Brink's-Mat holding?"** | **"£26 million"** (Correct) | *"The information is not found in the provided documents."* (Incorrect) | **Retrieval miss / over-filtering:** God Mode simply fails to surface the relevant evidence (its retrieval metrics for this item drop to zero). Generation failed because retrieval failed. |
 | **"Which movie is about two rival gangs in Munich?"** | **"Nacht der Wölfe"** (Correct) | *"I cannot find the answer..." (Incorrect) | **Wrong retrieval target:** This looks like a straight-up miss -- God Mode doesn’t retrieve the needed doc and instead finds unrelated ones. |
 
@@ -1618,7 +1654,7 @@ The most remarkably underperforming configuration across all experiments were th
 
 To better isolate the effect of reduced quantization on the degradation of System D, a limited follow-up experiment was conducted using the 4-bit quantized variant of Llama 3.1 70B (the "default", and the version actually authored by Meta), together with System D and OpenAI-large embeddings, to compare with the 2-bit analog configuration. My local hardware couldn't hold this system entirely in VRAM, so CPU offloading was required and inference speeds went through the floor; however, the point of interest of this experiment wasn't speed, it was correctness. 
 
-Moving from 2-bit to 4-bit quantization <i>did</i> result in an improvement in correctness for Llama 3.1 70B, but surprisingly not very much. See Figure 13. Because this would've been the largest LLM in the study, I was expecting correctness to be at or exceeding 70%, which was the apparent ceiling across all experiments in the study. However, it was 47.7% -- only a modest improvement from the performance at 2-bit (40.8%). This difference in performance was compared with the difference between the 4-bit and 2-bit versions of Qwen 2.5 32B, which was virtually non-existent (both at ~63%)  
+Moving from 2-bit to 4-bit quantization <i>did</i> result in an improvement in correctness for Llama 3.1 70B, but surprisingly not very much. See Figure 13. Because this would've been the largest LLM in the study, I was expecting correctness to be at or exceeding 70%, which was the apparent ceiling across all experiments in the study. However, it was 43.8% -- a modest improvement from the performance at 2-bit (33%), but not nearly approaching the best in the study. This difference in performance was compared with the difference between the 4-bit and 2-bit versions of Qwen 2.5 32B, which was virtually non-existent (both at ~63%)  
 
 The difference in performance degradation between Llama 3.1 70B and Qwen 2.5 32B was striking. Why is there such a big difference? The different bit-widths certainly contributed to the performance differential in both cases, but this phenomenon alone was insufficient to explain the large performance drop for Llama 3.1 70B in System D. 
 
@@ -1632,7 +1668,7 @@ To summarize, these findings suggest the existence of a fragility threshold in c
 
 # Conclusions
 
-These would be my recommendations for production-level deployment configurations:
+These would be my recommended configurations for production-level deployment:
 
 - **For Startups (budget-conscious):**
   - **System:** C (Agentic)
@@ -1663,7 +1699,7 @@ These would be my recommendations for production-level deployment configurations
 
 96 RAG configurations were assembled and tested using questions that could be answered with TV and movie data. The RAG architectures ranged from simple "naive" RAG to agentic systems that included reranking, iterative retrieval, and self-evaluation. The aim was to evaluate whether the complexity in RAG systems would correlate with performance. The tested configurations showed a ~70% peak correctness that was obtained most consistently by the agentic System C. On the other hand, the "God Mode" agentic System D exhibited high variance in performance -- it performed very well in some systems, but degraded sharply in others -- particularly with the aggressively quantized Llama 3.1 70B-IQ2.
 
-A lackluster performance by 2-bit models like Llama 3.1 70B-IQ2 is perhaps unsurprising. However, when investigating the effects of going from 4-bit to 2-bit, it was shown that the degradation for Llama 3.1 70B was markedly worse than for Qwen 2.5 32B. Therefore, performance appears to be shaped by a complex interplay between model architecture, quantization, and an error-amplifying effect of the complex System D pipeline.
+A lackluster performance by 2-bit models like Llama 3.1 70B-IQ2 is perhaps unsurprising. However, when investigating the effects of moving from 4-bit to 2-bit, it was shown that the degradation for Llama 3.1 70B was markedly worse than for Qwen 2.5 32B. Therefore, performance appears to be shaped by a complex interplay between model architecture, quantization, and an error-amplifying effect of the complex System D pipeline.
 
 It should be noted that most aggressively quantized model -- Llama 3.1 70B-IQ2 -- is a community-produced release, rather than an official Meta release. Therefore, these results should not be interpreted as definitive judgments on the Llama architecture itself. Moreover, newer open-source models (e.g., Llama 3.3) were released after the completion of this study and not evaluated here. 
 
