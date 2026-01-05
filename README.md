@@ -9,7 +9,7 @@ This repo contains the full code + outputs for an empirical RAG evaluation: **96
 - **System C is the sweet spot**: Moderate agentic workflows -- grading + rewriting -- sit right on the efficiency frontier for latency, cost and accuracy.
 - **Complex pipelines amplify model weakness.**: Heavy reranking in "God Mode" (System D, the most complex system) caused degradation in aggressively quantized models.
 
-📄 **Read the write-up:** *(link to article)*  
+📄 **Read the write-up:** *[Link](https://tseguin715.github.io/rag-complexity-paradox/)*  
 
 ---
 ## What’s in here
