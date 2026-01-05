@@ -1646,7 +1646,7 @@ fig.show()
 ```
 
 ::: {.fig-caption}
-**Figure 14**. Quantization vulnerability by question type. Llama catastrophically fails on descriptive and unanswerable questions.
+**Figure 14**. Quantization vulnerability by question type. Llama catastrophically fails on multi-hop and unanswerable questions.
 :::
 
 
