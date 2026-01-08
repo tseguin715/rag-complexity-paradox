@@ -166,7 +166,6 @@ python run_baselines.py --llm gpt4o --db openai_large
 ```
 
 ## Citing this work
-## Citing this work
 
 If you use this benchmark or code in your own work, please cite it as:
 
