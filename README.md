@@ -164,3 +164,22 @@ You can also run individual experiments using the CLI arguments:
 ```bash
 python run_baselines.py --llm gpt4o --db openai_large
 ```
+
+## Citing this work
+## Citing this work
+
+If you use this benchmark or code in your own work, please cite it as:
+
+> Seguin, T. (2026). The RAG Complexity Paradox. https://github.com/tseguin715/rag-complexity-paradox
+
+If you are using BibTeX:
+
+```bibtex
+@misc{seguin2026ragparadox,
+  author = {Seguin, Trevor},
+  title = {The {RAG} Complexity Paradox: Benchmarking Agentic {RAG} Architectures},
+  year = {2026},
+  howpublished = {\url{https://github.com/tseguin715/rag-complexity-paradox}},
+  note = {GitHub repository}
+}
+```
